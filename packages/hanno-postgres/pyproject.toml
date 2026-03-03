@@ -1,0 +1,17 @@
+[project]
+name = "hanno-postgres"
+version = "0.1.0"
+requires-python = ">=3.12"
+description = "Workflow Ledger: Postgres storage backend"
+license = "BSD-3-Clause"
+dependencies = [
+    "hanno-core",
+    "asyncpg>=0.30",
+]
+
+[tool.uv.sources]
+hanno-core = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

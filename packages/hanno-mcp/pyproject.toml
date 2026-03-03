@@ -1,0 +1,20 @@
+[project]
+name = "hanno-mcp"
+version = "0.1.0"
+requires-python = ">=3.12"
+description = "Workflow Ledger: MCP server for AI agent integration"
+license = "BSD-3-Clause"
+dependencies = [
+    "hanno-core",
+    "mcp>=1.2",
+]
+
+[project.scripts]
+hanno-mcp = "hanno_mcp.server:main"
+
+[tool.uv.sources]
+hanno-core = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

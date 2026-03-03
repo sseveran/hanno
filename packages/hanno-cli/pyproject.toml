@@ -1,0 +1,21 @@
+[project]
+name = "hanno-cli"
+version = "0.1.0"
+requires-python = ">=3.12"
+description = "Workflow Ledger: CLI tool"
+license = "BSD-3-Clause"
+dependencies = [
+    "hanno-core",
+    "typer[all]>=0.15",
+    "rich>=13.0",
+]
+
+[project.scripts]
+hanno = "hanno_cli.main:app"
+
+[tool.uv.sources]
+hanno-core = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
