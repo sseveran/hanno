@@ -17,9 +17,9 @@ class InProcessHookRegistry:
     async def fire_event_appended(self, event: Event) -> None:
         for hook in self._hooks:
             if hasattr(hook, "on_event_appended"):
-                await hook.on_event_appended(event)  # type: ignore[union-attr]
+                await hook.on_event_appended(event)
 
     async def fire_run_completed(self, run_id: str, final_status: RunStatus) -> None:
         for hook in self._hooks:
             if hasattr(hook, "on_run_completed"):
-                await hook.on_run_completed(run_id, final_status)  # type: ignore[union-attr]
+                await hook.on_run_completed(run_id, final_status)
