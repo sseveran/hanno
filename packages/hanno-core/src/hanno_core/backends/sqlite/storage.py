@@ -452,7 +452,7 @@ class SqliteStorageBackend:
         cursor = await self._db.execute(Q.SELECT_SEQUENCE, (run_id,))
         row = await cursor.fetchone()
         await self._db.commit()
-        return row[0]  # type: ignore[index]
+        return row[0]  # type: ignore[index,no-any-return]
 
 
 # --- Row conversion helpers ---
