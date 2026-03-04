@@ -7,10 +7,23 @@ license = "BSD-3-Clause"
 dependencies = [
     "hanno-core",
     "asyncpg>=0.30",
+    "alembic>=1.14",
+    "sqlalchemy[asyncio]>=2.0",
 ]
 
 [tool.uv.sources]
 hanno-core = { workspace = true }
+
+[dependency-groups]
+test = [
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+    "testcontainers[postgres]>=4",
+]
+
+[tool.pytest.ini_options]
+addopts = ["--import-mode=importlib"]
+asyncio_mode = "auto"
 
 [build-system]
 requires = ["hatchling"]
