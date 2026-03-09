@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 
 import aiosqlite
@@ -19,6 +20,8 @@ from hanno_core.models import (
     Lease,
     Run,
     RunStatus,
+    Session,
+    SessionStatus,
     StateVersion,
     StepRun,
     StepRunStatus,
@@ -58,6 +61,100 @@ class SqliteStorageBackend:
             await self._conn.close()
             self._conn = None
 
+    # --- Sessions ---
+
+    async def create_session(self, session: Session) -> Session:
+        await self._db.execute(
+            Q.INSERT_SESSION,
+            (
+                session.id,
+                session.title,
+                session.status.value,
+                json.dumps([r.model_dump() for r in session.external_refs]),
+                json.dumps(session.labels),
+                json.dumps(session.metadata, default=str),
+                session.created_at.isoformat(),
+                session.updated_at.isoformat(),
+            ),
+        )
+        await self._db.commit()
+        return session
+
+    async def get_session(self, session_id: str) -> Session | None:
+        cursor = await self._db.execute(Q.SELECT_SESSION, (session_id,))
+        row = await cursor.fetchone()
+        if row is None:
+            return None
+        return _row_to_session(row)
+
+    async def update_session(self, session: Session) -> Session:
+        await self._db.execute(
+            Q.UPDATE_SESSION,
+            (
+                session.title,
+                session.status.value,
+                json.dumps([r.model_dump() for r in session.external_refs]),
+                json.dumps(session.labels),
+                json.dumps(session.metadata, default=str),
+                session.updated_at.isoformat(),
+                session.id,
+            ),
+        )
+        await self._db.commit()
+        return session
+
+    async def list_sessions(
+        self,
+        *,
+        status: SessionStatus | None = None,
+        labels: dict[str, str] | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> Sequence[Session]:
+        clauses: list[str] = []
+        params: list[object] = []
+        if status is not None:
+            clauses.append("status = ?")
+            params.append(status.value)
+
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        sql = f"SELECT * FROM sessions{where} ORDER BY created_at DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+
+        cursor = await self._db.execute(sql, params)
+        rows = await cursor.fetchall()
+        sessions = [_row_to_session(r) for r in rows]
+
+        if labels:
+            sessions = [
+                s
+                for s in sessions
+                if all(s.labels.get(k) == v for k, v in labels.items())
+            ]
+        return sessions
+
+    async def find_sessions_by_external_ref(
+        self,
+        *,
+        system: str,
+        ref_type: str,
+        ref_id: str,
+        status: SessionStatus | None = None,
+    ) -> Sequence[Session]:
+        sql = "SELECT * FROM sessions ORDER BY created_at DESC"
+        cursor = await self._db.execute(sql)
+        rows = await cursor.fetchall()
+        results: list[Session] = []
+        for row in rows:
+            session = _row_to_session(row)
+            if status is not None and session.status != status:
+                continue
+            for ref in session.external_refs:
+                if ref.system == system and ref.ref_type == ref_type and ref.ref_id == ref_id:
+                    results.append(session)
+                    break
+        return results
+
     # --- Runs ---
 
     async def create_run(self, run: Run) -> Run:
@@ -68,9 +165,10 @@ class SqliteStorageBackend:
                 run.run_type,
                 run.status.value,
                 run.title,
-                json.dumps(run.links),
+                json.dumps([r.model_dump() for r in run.external_refs]),
                 json.dumps(run.labels),
                 json.dumps(run.metadata, default=str),
+                run.session_id,
                 run.created_at.isoformat(),
                 run.updated_at.isoformat(),
             ),
@@ -90,6 +188,7 @@ class SqliteStorageBackend:
         *,
         status: RunStatus | None = None,
         run_type: str | None = None,
+        session_id: str | None = None,
         labels: dict[str, str] | None = None,
         limit: int = 50,
         offset: int = 0,
@@ -102,6 +201,9 @@ class SqliteStorageBackend:
         if run_type is not None:
             clauses.append("run_type = ?")
             params.append(run_type)
+        if session_id is not None:
+            clauses.append("session_id = ?")
+            params.append(session_id)
 
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         sql = f"SELECT * FROM runs{where} ORDER BY created_at DESC LIMIT ? OFFSET ?"
@@ -125,15 +227,38 @@ class SqliteStorageBackend:
             (
                 run.status.value,
                 run.title,
-                json.dumps(run.links),
+                json.dumps([r.model_dump() for r in run.external_refs]),
                 json.dumps(run.labels),
                 json.dumps(run.metadata, default=str),
+                run.session_id,
                 run.updated_at.isoformat(),
                 run.id,
             ),
         )
         await self._db.commit()
         return run
+
+    async def find_runs_by_external_ref(
+        self,
+        *,
+        system: str,
+        ref_type: str,
+        ref_id: str,
+        status: RunStatus | None = None,
+    ) -> Sequence[Run]:
+        sql = "SELECT * FROM runs ORDER BY created_at DESC"
+        cursor = await self._db.execute(sql)
+        rows = await cursor.fetchall()
+        results: list[Run] = []
+        for row in rows:
+            run = _row_to_run(row)
+            if status is not None and run.status != status:
+                continue
+            for ref in run.external_refs:
+                if ref.system == system and ref.ref_type == ref_type and ref.ref_id == ref_id:
+                    results.append(run)
+                    break
+        return results
 
     # --- Events ---
 
@@ -170,6 +295,8 @@ class SqliteStorageBackend:
         *,
         after_sequence: int = 0,
         kinds: Sequence[EventKind] | None = None,
+        after: datetime | None = None,
+        before: datetime | None = None,
         limit: int | None = None,
     ) -> Sequence[Event]:
         clauses = ["run_id = ?", "sequence > ?"]
@@ -179,6 +306,14 @@ class SqliteStorageBackend:
             placeholders = ",".join("?" for _ in kinds)
             clauses.append(f"kind IN ({placeholders})")
             params.extend(k.value for k in kinds)
+
+        if after is not None:
+            clauses.append("timestamp > ?")
+            params.append(after.isoformat())
+
+        if before is not None:
+            clauses.append("timestamp < ?")
+            params.append(before.isoformat())
 
         where = " AND ".join(clauses)
         sql = f"SELECT * FROM events WHERE {where} ORDER BY sequence ASC"
@@ -325,20 +460,34 @@ class SqliteStorageBackend:
         await self._db.commit()
         return artifact
 
+    async def get_artifact(self, artifact_id: str) -> Artifact | None:
+        cursor = await self._db.execute(Q.SELECT_ARTIFACT, (artifact_id,))
+        row = await cursor.fetchone()
+        if row is None:
+            return None
+        return _row_to_artifact(row)
+
     async def list_artifacts(
-        self, run_id: str, *, step_run_id: str | None = None
+        self,
+        run_id: str,
+        *,
+        step_run_id: str | None = None,
+        kind: str | None = None,
     ) -> Sequence[Artifact]:
-        if step_run_id:
-            cursor = await self._db.execute(
-                "SELECT * FROM artifacts WHERE run_id = ? AND step_run_id = ?"
-                " ORDER BY created_at ASC",
-                (run_id, step_run_id),
-            )
-        else:
-            cursor = await self._db.execute(
-                "SELECT * FROM artifacts WHERE run_id = ? ORDER BY created_at ASC",
-                (run_id,),
-            )
+        clauses = ["run_id = ?"]
+        params: list[object] = [run_id]
+
+        if step_run_id is not None:
+            clauses.append("step_run_id = ?")
+            params.append(step_run_id)
+        if kind is not None:
+            clauses.append("kind = ?")
+            params.append(kind)
+
+        where = " AND ".join(clauses)
+        sql = f"SELECT * FROM artifacts WHERE {where} ORDER BY created_at ASC"
+
+        cursor = await self._db.execute(sql, params)
         rows = await cursor.fetchall()
         return [_row_to_artifact(r) for r in rows]
 
@@ -457,8 +606,6 @@ class SqliteStorageBackend:
 
 # --- Row conversion helpers ---
 
-from datetime import UTC, datetime  # noqa: E402
-
 
 def _parse_dt(s: str | None) -> datetime | None:
     if s is None:
@@ -476,15 +623,29 @@ def _parse_dt_required(s: str) -> datetime:
     return dt
 
 
+def _row_to_session(row: aiosqlite.Row) -> Session:
+    return Session(
+        id=row["id"],
+        title=row["title"],
+        status=SessionStatus(row["status"]),
+        external_refs=json.loads(row["external_refs_json"]),
+        labels=json.loads(row["labels_json"]),
+        metadata=json.loads(row["metadata_json"]),
+        created_at=_parse_dt_required(row["created_at"]),
+        updated_at=_parse_dt_required(row["updated_at"]),
+    )
+
+
 def _row_to_run(row: aiosqlite.Row) -> Run:
     return Run(
         id=row["id"],
         run_type=row["run_type"],
         status=RunStatus(row["status"]),
         title=row["title"],
-        links=json.loads(row["links_json"]),
+        external_refs=json.loads(row["external_refs_json"]),
         labels=json.loads(row["labels_json"]),
         metadata=json.loads(row["metadata_json"]),
+        session_id=row["session_id"],
         created_at=_parse_dt_required(row["created_at"]),
         updated_at=_parse_dt_required(row["updated_at"]),
     )

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from hanno_core.engine.ledger import InvalidTransitionError, LedgerError
+from hanno_core.models import ExternalRef
 from hanno_core.models.identity import ActorRef
 from mcp.server.fastmcp import FastMCP
 
@@ -19,7 +20,8 @@ def register(mcp: FastMCP) -> None:
         run_type: str,
         title: str = "",
         labels: dict[str, str] | None = None,
-        links: list[str] | None = None,
+        external_refs: list[dict[str, str]] | None = None,
+        session_id: str | None = None,
     ) -> str:
         """Create a new workflow run.
 
@@ -27,8 +29,11 @@ def register(mcp: FastMCP) -> None:
             run_type: Type of workflow (e.g. 'deploy', 'build', 'review').
             title: Optional human-readable title.
             labels: Optional key-value labels for filtering.
-            links: Optional list of related URLs.
+            external_refs: Optional list of external references, each with
+                system, ref_type, ref_id, and optional url.
+            session_id: Optional session ID to associate this run with.
         """
+        refs = [ExternalRef(**r) for r in external_refs] if external_refs else None
         async with open_ledger() as ledger:
             try:
                 run = await ledger.create_run(
@@ -36,7 +41,8 @@ def register(mcp: FastMCP) -> None:
                     actor=ACTOR,
                     title=title,
                     labels=labels,
-                    links=links,
+                    external_refs=refs,
+                    session_id=session_id,
                 )
                 return run.model_dump_json()
             except LedgerError as e:

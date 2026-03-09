@@ -11,9 +11,12 @@ from hanno_core.models import (
     EdgeKind,
     Event,
     EventKind,
+    ExternalRef,
     Lease,
     Run,
     RunStatus,
+    Session,
+    SessionStatus,
     StateVersion,
     StepRun,
     StepRunStatus,
@@ -48,26 +51,65 @@ class TestActorRef:
         assert restored == actor
 
 
+class TestExternalRef:
+    def test_create(self):
+        ref = ExternalRef(system="github", ref_type="issue", ref_id="org/repo#42")
+        assert ref.system == "github"
+        assert ref.ref_type == "issue"
+        assert ref.ref_id == "org/repo#42"
+        assert ref.url is None
+
+    def test_with_url(self):
+        ref = ExternalRef(
+            system="github",
+            ref_type="issue",
+            ref_id="org/repo#42",
+            url="https://github.com/org/repo/issues/42",
+        )
+        assert ref.url == "https://github.com/org/repo/issues/42"
+
+    def test_json_roundtrip(self):
+        ref = ExternalRef(
+            system="jira", ref_type="ticket", ref_id="PROJ-123", url="https://jira.example.com/PROJ-123"
+        )
+        data = json.loads(ref.model_dump_json())
+        restored = ExternalRef.model_validate(data)
+        assert restored == ref
+
+
 class TestRun:
     def test_defaults(self):
         run = Run(run_type="test")
         assert run.status == RunStatus.PLANNED
         assert run.title == ""
-        assert run.links == []
+        assert run.external_refs == []
         assert run.labels == {}
         assert run.id  # ULID generated
+
+    def test_with_external_refs(self):
+        refs = [
+            ExternalRef(system="github", ref_type="issue", ref_id="org/repo#1"),
+            ExternalRef(system="zendesk", ref_type="case", ref_id="CASE-99", url="https://zendesk.example.com/99"),
+        ]
+        run = Run(run_type="support", external_refs=refs)
+        assert len(run.external_refs) == 2
+        assert run.external_refs[0].system == "github"
+        assert run.external_refs[1].url == "https://zendesk.example.com/99"
 
     def test_json_roundtrip(self):
         run = Run(
             run_type="pr_authoring",
             title="Fix bug",
             labels={"env": "staging"},
+            external_refs=[ExternalRef(system="github", ref_type="pr", ref_id="org/repo#5")],
         )
         data = json.loads(run.model_dump_json())
         assert data["run_type"] == "pr_authoring"
         assert data["status"] == "planned"
+        assert len(data["external_refs"]) == 1
         restored = Run.model_validate(data)
         assert restored.run_type == "pr_authoring"
+        assert restored.external_refs[0].ref_id == "org/repo#5"
 
 
 class TestStepRun:
@@ -161,6 +203,47 @@ class TestLease:
         )
         assert lease.lease_token  # auto-generated
         assert lease.purpose == "editing"
+
+
+class TestSession:
+    def test_defaults(self):
+        session = Session()
+        assert session.status == SessionStatus.ACTIVE
+        assert session.title == ""
+        assert session.external_refs == []
+        assert session.labels == {}
+        assert session.id  # ULID generated
+
+    def test_with_external_refs(self):
+        refs = [
+            ExternalRef(system="github", ref_type="pr", ref_id="org/repo#42"),
+        ]
+        session = Session(title="PR #42 work", external_refs=refs)
+        assert len(session.external_refs) == 1
+        assert session.external_refs[0].ref_id == "org/repo#42"
+
+    def test_json_roundtrip(self):
+        session = Session(
+            title="Fix auth bug",
+            labels={"team": "backend"},
+            external_refs=[
+                ExternalRef(system="github", ref_type="pr", ref_id="org/repo#5"),
+            ],
+        )
+        data = json.loads(session.model_dump_json())
+        assert data["status"] == "active"
+        assert len(data["external_refs"]) == 1
+        restored = Session.model_validate(data)
+        assert restored.title == "Fix auth bug"
+        assert restored.external_refs[0].ref_id == "org/repo#5"
+
+    def test_run_with_session_id(self):
+        run = Run(run_type="test", session_id="sess-123")
+        assert run.session_id == "sess-123"
+
+    def test_run_session_id_default_none(self):
+        run = Run(run_type="test")
+        assert run.session_id is None
 
 
 class TestEnums:

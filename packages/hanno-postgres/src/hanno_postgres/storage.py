@@ -23,6 +23,8 @@ from hanno_core.models import (
     Lease,
     Run,
     RunStatus,
+    Session,
+    SessionStatus,
     StateVersion,
     StepRun,
     StepRunStatus,
@@ -98,6 +100,99 @@ class PostgresStorageBackend:
             await self._pool.close()
             self._pool = None
 
+    # --- Sessions ---
+
+    async def create_session(self, session: Session) -> Session:
+        async with self._db.acquire() as conn:
+            await conn.execute(
+                Q.INSERT_SESSION,
+                session.id,
+                session.title,
+                session.status.value,
+                [r.model_dump() for r in session.external_refs],
+                session.labels,
+                session.metadata,
+                session.created_at,
+                session.updated_at,
+            )
+        return session
+
+    async def get_session(self, session_id: str) -> Session | None:
+        async with self._db.acquire() as conn:
+            row = await conn.fetchrow(Q.SELECT_SESSION, session_id)
+        if row is None:
+            return None
+        return _row_to_session(row)
+
+    async def update_session(self, session: Session) -> Session:
+        async with self._db.acquire() as conn:
+            await conn.execute(
+                Q.UPDATE_SESSION,
+                session.title,
+                session.status.value,
+                [r.model_dump() for r in session.external_refs],
+                session.labels,
+                session.metadata,
+                session.updated_at,
+                session.id,
+            )
+        return session
+
+    async def list_sessions(
+        self,
+        *,
+        status: SessionStatus | None = None,
+        labels: dict[str, str] | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> Sequence[Session]:
+        clauses: list[str] = []
+        params: list[object] = []
+
+        if status is not None:
+            params.append(status.value)
+            clauses.append(f"status = ${len(params)}")
+        if labels:
+            params.append(labels)
+            clauses.append(f"labels_json @> ${len(params)}")
+
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        params.append(limit)
+        limit_param = len(params)
+        params.append(offset)
+        offset_param = len(params)
+        sql = (
+            f"SELECT * FROM sessions{where} ORDER BY created_at DESC "
+            f"LIMIT ${limit_param} OFFSET ${offset_param}"
+        )
+
+        async with self._db.acquire() as conn:
+            rows = await conn.fetch(sql, *params)
+        return [_row_to_session(r) for r in rows]
+
+    async def find_sessions_by_external_ref(
+        self,
+        *,
+        system: str,
+        ref_type: str,
+        ref_id: str,
+        status: SessionStatus | None = None,
+    ) -> Sequence[Session]:
+        clauses = [
+            "external_refs_json @> $1::jsonb",
+        ]
+        params: list[object] = [
+            json.dumps([{"system": system, "ref_type": ref_type, "ref_id": ref_id}]),
+        ]
+        if status is not None:
+            params.append(status.value)
+            clauses.append(f"status = ${len(params)}")
+        where = " WHERE " + " AND ".join(clauses)
+        sql = f"SELECT * FROM sessions{where} ORDER BY created_at DESC"
+        async with self._db.acquire() as conn:
+            rows = await conn.fetch(sql, *params)
+        return [_row_to_session(r) for r in rows]
+
     # --- Runs ---
 
     async def create_run(self, run: Run) -> Run:
@@ -108,9 +203,10 @@ class PostgresStorageBackend:
                 run.run_type,
                 run.status.value,
                 run.title,
-                run.links,
+                [r.model_dump() for r in run.external_refs],
                 run.labels,
                 run.metadata,
+                run.session_id,
                 run.created_at,
                 run.updated_at,
             )
@@ -128,6 +224,7 @@ class PostgresStorageBackend:
         *,
         status: RunStatus | None = None,
         run_type: str | None = None,
+        session_id: str | None = None,
         labels: dict[str, str] | None = None,
         limit: int = 50,
         offset: int = 0,
@@ -141,6 +238,9 @@ class PostgresStorageBackend:
         if run_type is not None:
             params.append(run_type)
             clauses.append(f"run_type = ${len(params)}")
+        if session_id is not None:
+            params.append(session_id)
+            clauses.append(f"session_id = ${len(params)}")
         if labels:
             params.append(labels)
             clauses.append(f"labels_json @> ${len(params)}")
@@ -165,13 +265,37 @@ class PostgresStorageBackend:
                 Q.UPDATE_RUN,
                 run.status.value,
                 run.title,
-                run.links,
+                [r.model_dump() for r in run.external_refs],
                 run.labels,
                 run.metadata,
+                run.session_id,
                 run.updated_at,
                 run.id,
             )
         return run
+
+    async def find_runs_by_external_ref(
+        self,
+        *,
+        system: str,
+        ref_type: str,
+        ref_id: str,
+        status: RunStatus | None = None,
+    ) -> Sequence[Run]:
+        clauses = [
+            "external_refs_json @> $1::jsonb",
+        ]
+        params: list[object] = [
+            json.dumps([{"system": system, "ref_type": ref_type, "ref_id": ref_id}]),
+        ]
+        if status is not None:
+            params.append(status.value)
+            clauses.append(f"status = ${len(params)}")
+        where = " WHERE " + " AND ".join(clauses)
+        sql = f"SELECT * FROM runs{where} ORDER BY created_at DESC"
+        async with self._db.acquire() as conn:
+            rows = await conn.fetch(sql, *params)
+        return [_row_to_run(r) for r in rows]
 
     # --- Events ---
 
@@ -206,6 +330,8 @@ class PostgresStorageBackend:
         *,
         after_sequence: int = 0,
         kinds: Sequence[EventKind] | None = None,
+        after: datetime | None = None,
+        before: datetime | None = None,
         limit: int | None = None,
     ) -> Sequence[Event]:
         clauses = ["run_id = $1", "sequence > $2"]
@@ -216,6 +342,14 @@ class PostgresStorageBackend:
             placeholders = ", ".join(f"${start + i}" for i in range(len(kinds)))
             clauses.append(f"kind IN ({placeholders})")
             params.extend(k.value for k in kinds)
+
+        if after is not None:
+            params.append(after)
+            clauses.append(f"timestamp > ${len(params)}")
+
+        if before is not None:
+            params.append(before)
+            clauses.append(f"timestamp < ${len(params)}")
 
         where = " AND ".join(clauses)
         sql = f"SELECT * FROM events WHERE {where} ORDER BY sequence ASC"
@@ -353,22 +487,35 @@ class PostgresStorageBackend:
             )
         return artifact
 
-    async def list_artifacts(
-        self, run_id: str, *, step_run_id: str | None = None
-    ) -> Sequence[Artifact]:
+    async def get_artifact(self, artifact_id: str) -> Artifact | None:
         async with self._db.acquire() as conn:
-            if step_run_id:
-                rows = await conn.fetch(
-                    "SELECT * FROM artifacts WHERE run_id = $1 AND step_run_id = $2"
-                    " ORDER BY created_at ASC",
-                    run_id,
-                    step_run_id,
-                )
-            else:
-                rows = await conn.fetch(
-                    "SELECT * FROM artifacts WHERE run_id = $1 ORDER BY created_at ASC",
-                    run_id,
-                )
+            row = await conn.fetchrow(Q.SELECT_ARTIFACT, artifact_id)
+        if row is None:
+            return None
+        return _row_to_artifact(row)
+
+    async def list_artifacts(
+        self,
+        run_id: str,
+        *,
+        step_run_id: str | None = None,
+        kind: str | None = None,
+    ) -> Sequence[Artifact]:
+        clauses = ["run_id = $1"]
+        params: list[object] = [run_id]
+
+        if step_run_id is not None:
+            params.append(step_run_id)
+            clauses.append(f"step_run_id = ${len(params)}")
+        if kind is not None:
+            params.append(kind)
+            clauses.append(f"kind = ${len(params)}")
+
+        where = " AND ".join(clauses)
+        sql = f"SELECT * FROM artifacts WHERE {where} ORDER BY created_at ASC"
+
+        async with self._db.acquire() as conn:
+            rows = await conn.fetch(sql, *params)
         return [_row_to_artifact(r) for r in rows]
 
     # --- Approvals ---
@@ -474,7 +621,7 @@ class PostgresStorageBackend:
     async def next_sequence(self, run_id: str) -> int:
         async with self._db.acquire() as conn:
             row = await conn.fetchrow(Q.UPSERT_SEQUENCE, run_id)
-        return row["current_seq"]  # type: ignore[index,no-any-return]
+        return row["current_seq"]  # type: ignore[no-any-return]
 
 
 # --- Row conversion helpers ---
@@ -499,15 +646,29 @@ def _parse_actor(val: dict) -> ActorRef:  # type: ignore[type-arg]
     return ActorRef.model_validate(val)
 
 
+def _row_to_session(row: asyncpg.Record) -> Session:
+    return Session(
+        id=row["id"],
+        title=row["title"],
+        status=SessionStatus(row["status"]),
+        external_refs=row["external_refs_json"],
+        labels=row["labels_json"],
+        metadata=row["metadata_json"],
+        created_at=_ensure_utc_required(row["created_at"]),
+        updated_at=_ensure_utc_required(row["updated_at"]),
+    )
+
+
 def _row_to_run(row: asyncpg.Record) -> Run:
     return Run(
         id=row["id"],
         run_type=row["run_type"],
         status=RunStatus(row["status"]),
         title=row["title"],
-        links=row["links_json"],
+        external_refs=row["external_refs_json"],
         labels=row["labels_json"],
         metadata=row["metadata_json"],
+        session_id=row["session_id"],
         created_at=_ensure_utc_required(row["created_at"]),
         updated_at=_ensure_utc_required(row["updated_at"]),
     )

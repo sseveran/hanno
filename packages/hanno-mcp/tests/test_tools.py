@@ -51,12 +51,15 @@ class TestRunTools:
                     "run_type": "build",
                     "title": "My Build",
                     "labels": {"env": "staging"},
-                    "links": ["https://example.com"],
+                    "external_refs": [
+                        {"system": "github", "ref_type": "issue", "ref_id": "org/repo#1"},
+                    ],
                 },
             )
             assert result["title"] == "My Build"
             assert result["labels"] == {"env": "staging"}
-            assert result["links"] == ["https://example.com"]
+            assert len(result["external_refs"]) == 1
+            assert result["external_refs"][0]["system"] == "github"
 
     @pytest.mark.asyncio
     async def test_list_runs_empty(self):
@@ -346,6 +349,101 @@ class TestApprovalTools:
             )
             assert len(pending) == 1
             assert pending[0]["authority"] == "security"
+
+
+class TestSessionTools:
+    @pytest.mark.asyncio
+    async def test_create_session(self):
+        async with create_connected_server_and_client_session(mcp) as session:
+            result = await _call(session, "hanno_create_session", {
+                "title": "PR #42 Work",
+            })
+            assert result["title"] == "PR #42 Work"
+            assert result["status"] == "active"
+            assert "id" in result
+
+    @pytest.mark.asyncio
+    async def test_create_session_with_refs(self):
+        async with create_connected_server_and_client_session(mcp) as session:
+            result = await _call(session, "hanno_create_session", {
+                "title": "PR Work",
+                "external_refs": [
+                    {"system": "github", "ref_type": "pr", "ref_id": "org/repo#42"},
+                ],
+            })
+            assert len(result["external_refs"]) == 1
+
+    @pytest.mark.asyncio
+    async def test_get_session(self):
+        async with create_connected_server_and_client_session(mcp) as session:
+            created = await _call(session, "hanno_create_session", {
+                "title": "Test",
+            })
+            result = await _call(session, "hanno_get_session", {
+                "session_id": created["id"],
+            })
+            assert result["id"] == created["id"]
+
+    @pytest.mark.asyncio
+    async def test_get_session_not_found(self):
+        async with create_connected_server_and_client_session(mcp) as session:
+            result = await _call(session, "hanno_get_session", {
+                "session_id": "nonexistent",
+            })
+            assert "error" in result
+
+    @pytest.mark.asyncio
+    async def test_list_sessions(self):
+        async with create_connected_server_and_client_session(mcp) as session:
+            await _call(session, "hanno_create_session", {"title": "A"})
+            await _call(session, "hanno_create_session", {"title": "B"})
+            result = await _call(session, "hanno_list_sessions")
+            assert len(result) == 2
+
+    @pytest.mark.asyncio
+    async def test_close_session(self):
+        async with create_connected_server_and_client_session(mcp) as session:
+            created = await _call(session, "hanno_create_session", {
+                "title": "Test",
+            })
+            result = await _call(session, "hanno_close_session", {
+                "session_id": created["id"],
+            })
+            assert result["status"] == "closed"
+
+    @pytest.mark.asyncio
+    async def test_find_session_by_ref(self):
+        async with create_connected_server_and_client_session(mcp) as session:
+            await _call(session, "hanno_create_session", {
+                "title": "PR #42",
+                "external_refs": [
+                    {"system": "github", "ref_type": "pr", "ref_id": "org/repo#42"},
+                ],
+            })
+            result = await _call(session, "hanno_find_session_by_ref", {
+                "system": "github",
+                "ref_type": "pr",
+                "ref_id": "org/repo#42",
+            })
+            assert len(result) == 1
+            assert result[0]["title"] == "PR #42"
+
+    @pytest.mark.asyncio
+    async def test_list_session_runs(self):
+        async with create_connected_server_and_client_session(mcp) as session:
+            s = await _call(session, "hanno_create_session", {"title": "Test"})
+            await _call(session, "hanno_create_run", {
+                "run_type": "test",
+                "session_id": s["id"],
+            })
+            await _call(session, "hanno_create_run", {
+                "run_type": "test",
+                "session_id": s["id"],
+            })
+            result = await _call(session, "hanno_list_session_runs", {
+                "session_id": s["id"],
+            })
+            assert len(result) == 2
 
 
 class TestFullLifecycle:
