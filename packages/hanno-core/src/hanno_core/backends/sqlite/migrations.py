@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import aiosqlite
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 3
 
 MIGRATIONS: dict[int, str] = {
     1: """
@@ -132,6 +132,25 @@ MIGRATIONS: dict[int, str] = {
         version INTEGER PRIMARY KEY,
         applied_at TEXT NOT NULL
     );
+    """,
+    2: """
+    ALTER TABLE runs RENAME COLUMN links_json TO external_refs_json;
+    """,
+    3: """
+    CREATE TABLE IF NOT EXISTS sessions (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'active',
+        external_refs_json TEXT NOT NULL DEFAULT '[]',
+        labels_json TEXT NOT NULL DEFAULT '{}',
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
+
+    ALTER TABLE runs ADD COLUMN session_id TEXT;
+    CREATE INDEX IF NOT EXISTS idx_runs_session_id ON runs(session_id);
     """,
 }
 

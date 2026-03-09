@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Protocol
 
 from hanno_core.models import (
@@ -15,6 +16,8 @@ from hanno_core.models import (
     Lease,
     Run,
     RunStatus,
+    Session,
+    SessionStatus,
     StateVersion,
     StepRun,
 )
@@ -32,6 +35,32 @@ class StorageBackend(Protocol):
     async def initialize(self) -> None: ...
     async def close(self) -> None: ...
 
+    # Sessions
+
+    async def create_session(self, session: Session) -> Session: ...
+
+    async def get_session(self, session_id: str) -> Session | None: ...
+
+    async def update_session(self, session: Session) -> Session: ...
+
+    async def list_sessions(
+        self,
+        *,
+        status: SessionStatus | None = None,
+        labels: dict[str, str] | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> Sequence[Session]: ...
+
+    async def find_sessions_by_external_ref(
+        self,
+        *,
+        system: str,
+        ref_type: str,
+        ref_id: str,
+        status: SessionStatus | None = None,
+    ) -> Sequence[Session]: ...
+
     # Runs
 
     async def create_run(self, run: Run) -> Run: ...
@@ -43,12 +72,22 @@ class StorageBackend(Protocol):
         *,
         status: RunStatus | None = None,
         run_type: str | None = None,
+        session_id: str | None = None,
         labels: dict[str, str] | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> Sequence[Run]: ...
 
     async def update_run(self, run: Run) -> Run: ...
+
+    async def find_runs_by_external_ref(
+        self,
+        *,
+        system: str,
+        ref_type: str,
+        ref_id: str,
+        status: RunStatus | None = None,
+    ) -> Sequence[Run]: ...
 
     # Events (append-only)
 
@@ -62,6 +101,8 @@ class StorageBackend(Protocol):
         *,
         after_sequence: int = 0,
         kinds: Sequence[EventKind] | None = None,
+        after: datetime | None = None,
+        before: datetime | None = None,
         limit: int | None = None,
     ) -> Sequence[Event]: ...
 
@@ -93,8 +134,14 @@ class StorageBackend(Protocol):
 
     async def create_artifact(self, artifact: Artifact) -> Artifact: ...
 
+    async def get_artifact(self, artifact_id: str) -> Artifact | None: ...
+
     async def list_artifacts(
-        self, run_id: str, *, step_run_id: str | None = None
+        self,
+        run_id: str,
+        *,
+        step_run_id: str | None = None,
+        kind: str | None = None,
     ) -> Sequence[Artifact]: ...
 
     # Approvals

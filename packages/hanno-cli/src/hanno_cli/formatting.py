@@ -64,15 +64,18 @@ def print_run(run: dict[str, Any], *, as_json: bool = False) -> None:
     if as_json:
         console.print_json(json.dumps(run, default=str))
         return
-    console.print(f"[bold]Run {run['id'][:12]}...[/bold]")
+    console.print(f"[bold]Run {run['id']}[/bold]")
     console.print(f"  Type:    {run['run_type']}")
     console.print(f"  Status:  {styled_status(run['status'])}")
     if run.get("title"):
         console.print(f"  Title:   {run['title']}")
     if run.get("labels"):
         console.print(f"  Labels:  {run['labels']}")
-    if run.get("links"):
-        console.print(f"  Links:   {run['links']}")
+    if run.get("external_refs"):
+        for ref in run["external_refs"]:
+            url_part = f" ({ref['url']})" if ref.get("url") else ""
+            ref_str = f"{ref['system']}:{ref['ref_type']}:{ref['ref_id']}"
+            console.print(f"  Ref:     {ref_str}{url_part}")
     console.print(f"  Created: {run['created_at']}")
     console.print(f"  Updated: {run['updated_at']}")
 
@@ -87,14 +90,14 @@ def print_runs_table(
         console.print("[dim]No runs found.[/dim]")
         return
     table = Table(title="Runs")
-    table.add_column("ID", style="bold", max_width=14)
+    table.add_column("ID", style="bold")
     table.add_column("Type")
     table.add_column("Status")
     table.add_column("Title", max_width=30)
     table.add_column("Created")
     for r in runs:
         table.add_row(
-            r["id"][:12] + "...",
+            r["id"],
             r["run_type"],
             styled_status(r["status"]),
             r.get("title", ""),
@@ -113,14 +116,14 @@ def print_steps_table(
         console.print("[dim]No steps found.[/dim]")
         return
     table = Table(title="Steps")
-    table.add_column("ID", style="bold", max_width=14)
+    table.add_column("ID", style="bold")
     table.add_column("Name")
     table.add_column("Status")
     table.add_column("Iter")
     table.add_column("Summary", max_width=30)
     for s in steps:
         table.add_row(
-            s["id"][:12] + "...",
+            s["id"],
             s["step_name"],
             styled_status(s["status"]),
             str(s.get("iteration", 0)),

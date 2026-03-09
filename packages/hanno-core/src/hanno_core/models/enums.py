@@ -68,6 +68,12 @@ class EventKind(StrEnum):
     NOTE = "note"
 
 
+class SessionStatus(StrEnum):
+    ACTIVE = "active"
+    CLOSED = "closed"
+    ARCHIVED = "archived"
+
+
 class ApprovalStatus(StrEnum):
     PENDING = "pending"
     GRANTED = "granted"

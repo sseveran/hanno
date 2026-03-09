@@ -8,12 +8,14 @@ from .enums import (
     EdgeKind,
     EventKind,
     RunStatus,
+    SessionStatus,
     StepRunStatus,
 )
 from .event import Event
 from .identity import ActorRef
 from .lease import Lease
-from .run import Run
+from .run import ExternalRef, Run
+from .session import Session
 from .state import StateVersion
 from .step import StepRun
 
@@ -26,9 +28,12 @@ __all__ = [
     "EdgeKind",
     "Event",
     "EventKind",
+    "ExternalRef",
     "Lease",
     "Run",
     "RunStatus",
+    "Session",
+    "SessionStatus",
     "StateVersion",
     "StepRun",
     "StepRunStatus",

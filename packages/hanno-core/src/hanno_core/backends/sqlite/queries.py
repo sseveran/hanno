@@ -1,17 +1,32 @@
 """Named SQL constants for the SQLite storage backend."""
 
+# Sessions
+INSERT_SESSION = """
+INSERT INTO sessions (id, title, status, external_refs_json,
+    labels_json, metadata_json, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+"""
+
+SELECT_SESSION = "SELECT * FROM sessions WHERE id = ?"
+
+UPDATE_SESSION = """
+UPDATE sessions SET title = ?, status = ?, external_refs_json = ?, labels_json = ?,
+    metadata_json = ?, updated_at = ?
+WHERE id = ?
+"""
+
 # Runs
 INSERT_RUN = """
-INSERT INTO runs (id, run_type, status, title, links_json,
-    labels_json, metadata_json, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO runs (id, run_type, status, title, external_refs_json,
+    labels_json, metadata_json, session_id, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 SELECT_RUN = "SELECT * FROM runs WHERE id = ?"
 
 UPDATE_RUN = """
-UPDATE runs SET status = ?, title = ?, links_json = ?, labels_json = ?,
-    metadata_json = ?, updated_at = ?
+UPDATE runs SET status = ?, title = ?, external_refs_json = ?, labels_json = ?,
+    metadata_json = ?, session_id = ?, updated_at = ?
 WHERE id = ?
 """
 
@@ -57,6 +72,8 @@ INSERT INTO artifacts (id, run_id, step_run_id, kind, uri, content_hash, size,
     content_type, name, metadata_json, created_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
+
+SELECT_ARTIFACT = "SELECT * FROM artifacts WHERE id = ?"
 
 # Approvals
 INSERT_APPROVAL = """

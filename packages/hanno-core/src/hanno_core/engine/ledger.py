@@ -15,9 +15,12 @@ from hanno_core.models import (
     EdgeKind,
     Event,
     EventKind,
+    ExternalRef,
     Lease,
     Run,
     RunStatus,
+    Session,
+    SessionStatus,
     StateVersion,
     StepRun,
     StepRunStatus,
@@ -55,6 +58,69 @@ class RunLedger:
         self._artifacts = artifacts
         self._hooks = hooks or InProcessHookRegistry()
 
+    # --- Session lifecycle ---
+
+    async def create_session(
+        self,
+        *,
+        title: str = "",
+        external_refs: list[ExternalRef] | None = None,
+        labels: dict[str, str] | None = None,
+        metadata: dict[str, object] | None = None,
+    ) -> Session:
+        session = Session(
+            title=title,
+            external_refs=external_refs or [],
+            labels=labels or {},
+            metadata=metadata or {},
+        )
+        return await self._storage.create_session(session)
+
+    async def get_session(self, session_id: str) -> Session | None:
+        return await self._storage.get_session(session_id)
+
+    async def close_session(self, session_id: str) -> Session:
+        session = await self._require_session(session_id)
+        if session.status != SessionStatus.ACTIVE:
+            msg = f"Cannot close session in status {session.status}"
+            raise InvalidTransitionError(msg)
+        session.status = SessionStatus.CLOSED
+        session.updated_at = datetime.now(UTC)
+        return await self._storage.update_session(session)
+
+    async def archive_session(self, session_id: str) -> Session:
+        session = await self._require_session(session_id)
+        if session.status == SessionStatus.ARCHIVED:
+            msg = "Session is already archived"
+            raise InvalidTransitionError(msg)
+        session.status = SessionStatus.ARCHIVED
+        session.updated_at = datetime.now(UTC)
+        return await self._storage.update_session(session)
+
+    async def list_sessions(self, **kwargs: object) -> list[Session]:
+        return list(await self._storage.list_sessions(**kwargs))  # type: ignore[arg-type]
+
+    async def find_sessions_by_external_ref(
+        self,
+        *,
+        system: str,
+        ref_type: str,
+        ref_id: str,
+        status: SessionStatus | None = None,
+    ) -> list[Session]:
+        return list(
+            await self._storage.find_sessions_by_external_ref(
+                system=system, ref_type=ref_type, ref_id=ref_id, status=status,
+            )
+        )
+
+    async def list_session_runs(
+        self, session_id: str, **kwargs: object
+    ) -> list[Run]:
+        return list(
+            await self._storage.list_runs(session_id=session_id, **kwargs)  # type: ignore[arg-type]
+        )
+
     # --- Run lifecycle ---
 
     async def create_run(
@@ -63,16 +129,18 @@ class RunLedger:
         *,
         actor: ActorRef,
         title: str = "",
-        links: list[str] | None = None,
+        external_refs: list[ExternalRef] | None = None,
         labels: dict[str, str] | None = None,
         metadata: dict[str, object] | None = None,
+        session_id: str | None = None,
     ) -> Run:
         run = Run(
             run_type=run_type,
             title=title,
-            links=links or [],
+            external_refs=external_refs or [],
             labels=labels or {},
             metadata=metadata or {},
+            session_id=session_id,
         )
         run = await self._storage.create_run(run)
         await self._append_event(
@@ -177,6 +245,20 @@ class RunLedger:
 
     async def list_runs(self, **kwargs: object) -> list[Run]:
         return list(await self._storage.list_runs(**kwargs))  # type: ignore[arg-type]
+
+    async def find_runs_by_external_ref(
+        self,
+        *,
+        system: str,
+        ref_type: str,
+        ref_id: str,
+        status: RunStatus | None = None,
+    ) -> list[Run]:
+        return list(
+            await self._storage.find_runs_by_external_ref(
+                system=system, ref_type=ref_type, ref_id=ref_id, status=status,
+            )
+        )
 
     # --- Step lifecycle ---
 
@@ -388,11 +470,25 @@ class RunLedger:
         )
         return artifact
 
+    async def retrieve_artifact(self, artifact_id: str) -> bytes:
+        """Retrieve artifact content by ID."""
+        artifact = await self._storage.get_artifact(artifact_id)
+        if artifact is None:
+            msg = f"Artifact not found: {artifact_id}"
+            raise LedgerError(msg)
+        return await self._artifacts.retrieve(artifact.uri)
+
     async def list_artifacts(
-        self, run_id: str, *, step_run_id: str | None = None
+        self,
+        run_id: str,
+        *,
+        step_run_id: str | None = None,
+        kind: str | None = None,
     ) -> list[Artifact]:
         return list(
-            await self._storage.list_artifacts(run_id, step_run_id=step_run_id)
+            await self._storage.list_artifacts(
+                run_id, step_run_id=step_run_id, kind=kind,
+            )
         )
 
     # --- Approvals ---
@@ -622,6 +718,13 @@ class RunLedger:
             msg = f"Approval not found: {approval_id}"
             raise LedgerError(msg)
         return approval
+
+    async def _require_session(self, session_id: str) -> Session:
+        session = await self._storage.get_session(session_id)
+        if session is None:
+            msg = f"Session not found: {session_id}"
+            raise LedgerError(msg)
+        return session
 
     @staticmethod
     def _check_run_transition(run: Run, target: RunStatus) -> None:

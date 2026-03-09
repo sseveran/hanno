@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Annotated
 
 import typer
-from hanno_core.models import RunStatus
+from hanno_core.models import ExternalRef, RunStatus
 from hanno_core.models.identity import ActorRef
 
 from hanno_cli.config import async_command, open_ledger
@@ -34,9 +34,9 @@ async def create(
         list[str] | None,
         typer.Option("--label", "-l", help="Label as key=value"),
     ] = None,
-    link: Annotated[
+    ref: Annotated[
         list[str] | None,
-        typer.Option("--link", help="External link/reference"),
+        typer.Option("--ref", help="External ref as system:type:id[:url]"),
     ] = None,
     json_output: JsonOpt = False,
 ) -> None:
@@ -46,13 +46,26 @@ async def create(
         k, _, v = item.partition("=")
         labels[k] = v
 
+    external_refs = []
+    for item in ref or []:
+        parts = item.split(":", 3)
+        if len(parts) < 3:  # noqa: PLR2004
+            console.print(f"[red]Invalid ref format: {item} (expected system:type:id[:url])[/red]")
+            raise typer.Exit(1)
+        external_refs.append(ExternalRef(
+            system=parts[0],
+            ref_type=parts[1],
+            ref_id=parts[2],
+            url=parts[3] if len(parts) > 3 else None,
+        ))
+
     async with open_ledger() as ledger:
         run = await ledger.create_run(
             run_type,
             actor=_actor(),
             title=title,
             labels=labels,
-            links=link or [],
+            external_refs=external_refs,
         )
     if json_output:
         print_run(run.model_dump(), as_json=True)
@@ -74,7 +87,7 @@ async def list_runs(
 ) -> None:
     """List workflow runs."""
     async with open_ledger() as ledger:
-        kwargs: dict = {"limit": limit}
+        kwargs: dict[str, object] = {"limit": limit}
         if status:
             kwargs["status"] = RunStatus(status)
         if run_type:
@@ -162,3 +175,22 @@ async def cancel(
         print_run(run.model_dump(), as_json=True)
     else:
         console.print(f"Run [bold]{run.id}[/bold] canceled")
+
+
+@app.command()
+@async_command
+async def find(
+    ref: Annotated[str, typer.Option("--ref", help="External ref as system:type:id")],
+    json_output: JsonOpt = False,
+) -> None:
+    """Find runs by external reference."""
+    parts = ref.split(":", 2)
+    if len(parts) < 3:  # noqa: PLR2004
+        console.print(f"[red]Invalid ref format: {ref} (expected system:type:id)[/red]")
+        raise typer.Exit(1)
+
+    async with open_ledger() as ledger:
+        runs = await ledger.find_runs_by_external_ref(
+            system=parts[0], ref_type=parts[1], ref_id=parts[2],
+        )
+    print_runs_table([r.model_dump() for r in runs], as_json=json_output)
