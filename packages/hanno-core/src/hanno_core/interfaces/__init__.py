@@ -3,7 +3,7 @@
 from .artifacts import ArtifactStore
 from .hooks import Hook, HookRegistry
 from .identity import IdentityProvider
-from .search import SearchDocument, SearchIndexer
+from .search import SearchBackend
 from .storage import StorageBackend
 
 __all__ = [
@@ -11,7 +11,6 @@ __all__ = [
     "Hook",
     "HookRegistry",
     "IdentityProvider",
-    "SearchDocument",
-    "SearchIndexer",
+    "SearchBackend",
     "StorageBackend",
 ]

@@ -15,6 +15,7 @@ from .event import Event
 from .identity import ActorRef
 from .lease import Lease
 from .run import ExternalRef, Run
+from .search import EntityType, SearchMode, SearchResult
 from .session import Session
 from .state import StateVersion
 from .step import StepRun
@@ -26,12 +27,15 @@ __all__ = [
     "Artifact",
     "Edge",
     "EdgeKind",
+    "EntityType",
     "Event",
     "EventKind",
     "ExternalRef",
     "Lease",
     "Run",
     "RunStatus",
+    "SearchMode",
+    "SearchResult",
     "Session",
     "SessionStatus",
     "StateVersion",

@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 from hanno_core.hooks.registry import InProcessHookRegistry
 from hanno_core.interfaces.artifacts import ArtifactStore
+from hanno_core.interfaces.search import SearchBackend
 from hanno_core.interfaces.storage import StorageBackend
 from hanno_core.models import (
     Approval,
@@ -53,10 +54,17 @@ class RunLedger:
         storage: StorageBackend,
         artifacts: ArtifactStore,
         hooks: InProcessHookRegistry | None = None,
+        search: SearchBackend | None = None,
     ) -> None:
         self._storage = storage
         self._artifacts = artifacts
         self._hooks = hooks or InProcessHookRegistry()
+        self._search = search
+
+    @property
+    def search(self) -> SearchBackend | None:
+        """Optional search backend for querying indexed ledger content."""
+        return self._search
 
     # --- Session lifecycle ---
 

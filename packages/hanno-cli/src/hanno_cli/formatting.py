@@ -158,6 +158,38 @@ def print_events_table(
     console.print(table)
 
 
+def print_search_results(
+    results: list[object], *, as_json: bool = False
+) -> None:
+    from hanno_core.models.search import SearchResult
+
+    typed: list[SearchResult] = [
+        r if isinstance(r, SearchResult) else SearchResult.model_validate(r)
+        for r in results
+    ]
+    if as_json:
+        console.print_json(json.dumps([r.model_dump() for r in typed], default=str))
+        return
+    if not typed:
+        console.print("[dim]No results found.[/dim]")
+        return
+    table = Table(title="Search Results")
+    table.add_column("Score", justify="right", style="bold")
+    table.add_column("Type")
+    table.add_column("ID")
+    table.add_column("Run")
+    table.add_column("Snippet", max_width=50)
+    for r in typed:
+        table.add_row(
+            f"{r.score:.2f}",
+            r.entity_type.value,
+            r.entity_id,
+            r.run_id,
+            r.snippet.replace("<b>", "[bold]").replace("</b>", "[/bold]"),
+        )
+    console.print(table)
+
+
 def print_step_tree(
     steps: list[dict[str, Any]], *, as_json: bool = False
 ) -> None:
