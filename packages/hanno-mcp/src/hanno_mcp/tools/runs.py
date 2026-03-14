@@ -18,20 +18,24 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool()
     async def hanno_create_run(
         run_type: str,
+        workspace_id: str,
         title: str = "",
         labels: dict[str, str] | None = None,
         external_refs: list[dict[str, str]] | None = None,
-        session_id: str | None = None,
+        task_id: str | None = None,
+        workspace_repo_id: str | None = None,
     ) -> str:
         """Create a new workflow run.
 
         Args:
             run_type: Type of workflow (e.g. 'deploy', 'build', 'review').
+            workspace_id: Workspace ID for the run.
             title: Optional human-readable title.
             labels: Optional key-value labels for filtering.
             external_refs: Optional list of external references, each with
                 system, ref_type, ref_id, and optional url.
-            session_id: Optional session ID to associate this run with.
+            task_id: Optional task ID to associate this run with.
+            workspace_repo_id: Optional workspace repo ID to associate this run with.
         """
         refs = [ExternalRef(**r) for r in external_refs] if external_refs else None
         async with open_ledger() as ledger:
@@ -39,10 +43,12 @@ def register(mcp: FastMCP) -> None:
                 run = await ledger.create_run(
                     run_type,
                     actor=ACTOR,
+                    workspace_id=workspace_id,
+                    task_id=task_id,
+                    workspace_repo_id=workspace_repo_id,
                     title=title,
                     labels=labels,
                     external_refs=refs,
-                    session_id=session_id,
                 )
                 return run.model_dump_json()
             except LedgerError as e:
@@ -52,6 +58,9 @@ def register(mcp: FastMCP) -> None:
     async def hanno_list_runs(
         status: str | None = None,
         run_type: str | None = None,
+        workspace_id: str | None = None,
+        task_id: str | None = None,
+        workspace_repo_id: str | None = None,
         limit: int = 50,
     ) -> str:
         """List workflow runs, optionally filtered by status or type.
@@ -72,6 +81,12 @@ def register(mcp: FastMCP) -> None:
                     return _error(f"Invalid status: {status}")
             if run_type is not None:
                 kwargs["run_type"] = run_type
+            if workspace_id is not None:
+                kwargs["workspace_id"] = workspace_id
+            if task_id is not None:
+                kwargs["task_id"] = task_id
+            if workspace_repo_id is not None:
+                kwargs["workspace_repo_id"] = workspace_repo_id
             runs = await ledger.list_runs(**kwargs)
             return "[" + ",".join(r.model_dump_json() for r in runs) + "]"
 

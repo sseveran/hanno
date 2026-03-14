@@ -68,7 +68,12 @@ class EventKind(StrEnum):
     NOTE = "note"
 
 
-class SessionStatus(StrEnum):
+class WorkspaceStatus(StrEnum):
+    ACTIVE = "active"
+    ARCHIVED = "archived"
+
+
+class TaskStatus(StrEnum):
     ACTIVE = "active"
     CLOSED = "closed"
     ARCHIVED = "archived"

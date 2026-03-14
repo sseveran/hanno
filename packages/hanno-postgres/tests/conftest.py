@@ -5,6 +5,10 @@ from hanno_postgres.storage import PostgresStorageBackend, _run_alembic_upgrade
 from testcontainers.postgres import PostgresContainer
 
 TABLES = [
+    "task_repo_links",
+    "workspace_repos",
+    "tasks",
+    "workspaces",
     "leases",
     "approvals",
     "artifacts",

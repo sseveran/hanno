@@ -8,17 +8,20 @@ from .enums import (
     EdgeKind,
     EventKind,
     RunStatus,
-    SessionStatus,
     StepRunStatus,
+    TaskStatus,
+    WorkspaceStatus,
 )
 from .event import Event
 from .identity import ActorRef
 from .lease import Lease
 from .run import ExternalRef, Run
 from .search import EntityType, SearchMode, SearchResult
-from .session import Session
 from .state import StateVersion
 from .step import StepRun
+from .task import Task
+from .workspace import Workspace
+from .workspace_repo import TaskRepoLink, WorkspaceRepo
 
 __all__ = [
     "ActorRef",
@@ -36,9 +39,13 @@ __all__ = [
     "RunStatus",
     "SearchMode",
     "SearchResult",
-    "Session",
-    "SessionStatus",
+    "Task",
+    "TaskRepoLink",
+    "TaskStatus",
     "StateVersion",
     "StepRun",
     "StepRunStatus",
+    "Workspace",
+    "WorkspaceRepo",
+    "WorkspaceStatus",
 ]

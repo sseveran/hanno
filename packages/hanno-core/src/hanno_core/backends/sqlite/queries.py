@@ -1,32 +1,68 @@
 """Named SQL constants for the SQLite storage backend."""
 
-# Sessions
-INSERT_SESSION = """
-INSERT INTO sessions (id, title, status, external_refs_json,
+# Workspaces
+INSERT_WORKSPACE = """
+INSERT INTO workspaces (id, title, status, external_refs_json,
     labels_json, metadata_json, created_at, updated_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 """
 
-SELECT_SESSION = "SELECT * FROM sessions WHERE id = ?"
+SELECT_WORKSPACE = "SELECT * FROM workspaces WHERE id = ?"
 
-UPDATE_SESSION = """
-UPDATE sessions SET title = ?, status = ?, external_refs_json = ?, labels_json = ?,
+UPDATE_WORKSPACE = """
+UPDATE workspaces SET title = ?, status = ?, external_refs_json = ?, labels_json = ?,
     metadata_json = ?, updated_at = ?
 WHERE id = ?
 """
 
+# Workspace repos
+INSERT_WORKSPACE_REPO = """
+INSERT INTO workspace_repos (id, workspace_id, vcs, display_name, canonical_remote,
+    local_path, default_branch, metadata_json, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+"""
+
+SELECT_WORKSPACE_REPO = "SELECT * FROM workspace_repos WHERE id = ?"
+
+UPDATE_WORKSPACE_REPO = """
+UPDATE workspace_repos SET vcs = ?, display_name = ?, canonical_remote = ?,
+    local_path = ?, default_branch = ?, metadata_json = ?, updated_at = ?
+WHERE id = ?
+"""
+
+# Tasks
+INSERT_TASK = """
+INSERT INTO tasks (id, workspace_id, title, status, external_refs_json,
+    labels_json, metadata_json, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+"""
+
+SELECT_TASK = "SELECT * FROM tasks WHERE id = ?"
+
+UPDATE_TASK = """
+UPDATE tasks SET title = ?, status = ?, external_refs_json = ?, labels_json = ?,
+    metadata_json = ?, updated_at = ?
+WHERE id = ?
+"""
+
+# Task repo links
+INSERT_TASK_REPO_LINK = """
+INSERT INTO task_repo_links (id, task_id, workspace_repo_id, created_at)
+VALUES (?, ?, ?, ?)
+"""
+
 # Runs
 INSERT_RUN = """
-INSERT INTO runs (id, run_type, status, title, external_refs_json,
-    labels_json, metadata_json, session_id, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO runs (id, workspace_id, task_id, workspace_repo_id, run_type, status, title,
+    external_refs_json, labels_json, metadata_json, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 SELECT_RUN = "SELECT * FROM runs WHERE id = ?"
 
 UPDATE_RUN = """
-UPDATE runs SET status = ?, title = ?, external_refs_json = ?, labels_json = ?,
-    metadata_json = ?, session_id = ?, updated_at = ?
+UPDATE runs SET workspace_id = ?, task_id = ?, workspace_repo_id = ?, status = ?, title = ?,
+    external_refs_json = ?, labels_json = ?, metadata_json = ?, updated_at = ?
 WHERE id = ?
 """
 

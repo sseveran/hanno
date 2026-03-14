@@ -16,10 +16,14 @@ from hanno_core.models import (
     Lease,
     Run,
     RunStatus,
-    Session,
-    SessionStatus,
     StateVersion,
     StepRun,
+    Task,
+    TaskRepoLink,
+    TaskStatus,
+    Workspace,
+    WorkspaceRepo,
+    WorkspaceStatus,
 )
 
 
@@ -35,31 +39,84 @@ class StorageBackend(Protocol):
     async def initialize(self) -> None: ...
     async def close(self) -> None: ...
 
-    # Sessions
+    # Workspaces
 
-    async def create_session(self, session: Session) -> Session: ...
+    async def create_workspace(self, workspace: Workspace) -> Workspace: ...
 
-    async def get_session(self, session_id: str) -> Session | None: ...
+    async def get_workspace(self, workspace_id: str) -> Workspace | None: ...
 
-    async def update_session(self, session: Session) -> Session: ...
+    async def update_workspace(self, workspace: Workspace) -> Workspace: ...
 
-    async def list_sessions(
+    async def list_workspaces(
         self,
         *,
-        status: SessionStatus | None = None,
+        status: WorkspaceStatus | None = None,
         labels: dict[str, str] | None = None,
         limit: int = 50,
         offset: int = 0,
-    ) -> Sequence[Session]: ...
+    ) -> Sequence[Workspace]: ...
 
-    async def find_sessions_by_external_ref(
+    async def find_workspaces_by_external_ref(
         self,
         *,
         system: str,
         ref_type: str,
         ref_id: str,
-        status: SessionStatus | None = None,
-    ) -> Sequence[Session]: ...
+        status: WorkspaceStatus | None = None,
+    ) -> Sequence[Workspace]: ...
+
+    async def create_workspace_repo(self, repo: WorkspaceRepo) -> WorkspaceRepo: ...
+
+    async def get_workspace_repo(self, workspace_repo_id: str) -> WorkspaceRepo | None: ...
+
+    async def update_workspace_repo(self, repo: WorkspaceRepo) -> WorkspaceRepo: ...
+
+    async def list_workspace_repos(
+        self,
+        workspace_id: str,
+    ) -> Sequence[WorkspaceRepo]: ...
+
+    async def find_workspace_repos(
+        self,
+        *,
+        canonical_remote: str | None = None,
+        local_path: str | None = None,
+        workspace_id: str | None = None,
+    ) -> Sequence[WorkspaceRepo]: ...
+
+    # Tasks
+
+    async def create_task(self, task: Task) -> Task: ...
+
+    async def get_task(self, task_id: str) -> Task | None: ...
+
+    async def update_task(self, task: Task) -> Task: ...
+
+    async def list_tasks(
+        self,
+        *,
+        workspace_id: str | None = None,
+        status: TaskStatus | None = None,
+        labels: dict[str, str] | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> Sequence[Task]: ...
+
+    async def find_tasks_by_external_ref(
+        self,
+        *,
+        workspace_id: str,
+        system: str,
+        ref_type: str,
+        ref_id: str,
+        status: TaskStatus | None = None,
+    ) -> Sequence[Task]: ...
+
+    async def create_task_repo_link(self, link: TaskRepoLink) -> TaskRepoLink: ...
+
+    async def list_task_repo_links(self, task_id: str) -> Sequence[TaskRepoLink]: ...
+
+    async def has_task_repo_link(self, task_id: str, workspace_repo_id: str) -> bool: ...
 
     # Runs
 
@@ -72,7 +129,9 @@ class StorageBackend(Protocol):
         *,
         status: RunStatus | None = None,
         run_type: str | None = None,
-        session_id: str | None = None,
+        workspace_id: str | None = None,
+        task_id: str | None = None,
+        workspace_repo_id: str | None = None,
         labels: dict[str, str] | None = None,
         limit: int = 50,
         offset: int = 0,

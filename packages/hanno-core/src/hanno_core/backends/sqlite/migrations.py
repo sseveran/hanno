@@ -7,21 +7,99 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import aiosqlite
 
-SCHEMA_VERSION = 3
 
+# v4 intentionally rebuilds the local ledger for the workspace/task rollout.
+# Existing SQLite data is not preserved.
 MIGRATIONS: dict[int, str] = {
-    1: """
-    CREATE TABLE IF NOT EXISTS runs (
+    4: """
+    DROP TABLE IF EXISTS task_repo_links;
+    DROP TABLE IF EXISTS workspace_repos;
+    DROP TABLE IF EXISTS tasks;
+    DROP TABLE IF EXISTS workspaces;
+    DROP TABLE IF EXISTS leases;
+    DROP TABLE IF EXISTS approvals;
+    DROP TABLE IF EXISTS artifacts;
+    DROP TABLE IF EXISTS state_versions;
+    DROP TABLE IF EXISTS edges;
+    DROP TABLE IF EXISTS step_runs;
+    DROP TABLE IF EXISTS events;
+    DROP TABLE IF EXISTS sequence_counters;
+    DROP TABLE IF EXISTS runs;
+
+    CREATE TABLE IF NOT EXISTS workspaces (
         id TEXT PRIMARY KEY,
-        run_type TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'planned',
         title TEXT NOT NULL DEFAULT '',
-        links_json TEXT NOT NULL DEFAULT '[]',
+        status TEXT NOT NULL DEFAULT 'active',
+        external_refs_json TEXT NOT NULL DEFAULT '[]',
         labels_json TEXT NOT NULL DEFAULT '{}',
         metadata_json TEXT NOT NULL DEFAULT '{}',
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
     );
+    CREATE INDEX IF NOT EXISTS idx_workspaces_status ON workspaces(status);
+
+    CREATE TABLE IF NOT EXISTS tasks (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id),
+        title TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'active',
+        external_refs_json TEXT NOT NULL DEFAULT '[]',
+        labels_json TEXT NOT NULL DEFAULT '{}',
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_tasks_workspace_id ON tasks(workspace_id);
+    CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+
+    CREATE TABLE IF NOT EXISTS workspace_repos (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id),
+        vcs TEXT NOT NULL DEFAULT 'git',
+        display_name TEXT NOT NULL DEFAULT '',
+        canonical_remote TEXT NOT NULL DEFAULT '',
+        local_path TEXT,
+        default_branch TEXT,
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_workspace_repos_workspace_id
+        ON workspace_repos(workspace_id);
+    CREATE INDEX IF NOT EXISTS idx_workspace_repos_canonical_remote
+        ON workspace_repos(canonical_remote);
+    CREATE INDEX IF NOT EXISTS idx_workspace_repos_local_path
+        ON workspace_repos(local_path);
+
+    CREATE TABLE IF NOT EXISTS task_repo_links (
+        id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL REFERENCES tasks(id),
+        workspace_repo_id TEXT NOT NULL REFERENCES workspace_repos(id),
+        created_at TEXT NOT NULL,
+        UNIQUE(task_id, workspace_repo_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_task_repo_links_task_id
+        ON task_repo_links(task_id);
+    CREATE INDEX IF NOT EXISTS idx_task_repo_links_workspace_repo_id
+        ON task_repo_links(workspace_repo_id);
+
+    CREATE TABLE IF NOT EXISTS runs (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id),
+        task_id TEXT REFERENCES tasks(id),
+        workspace_repo_id TEXT REFERENCES workspace_repos(id),
+        run_type TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'planned',
+        title TEXT NOT NULL DEFAULT '',
+        external_refs_json TEXT NOT NULL DEFAULT '[]',
+        labels_json TEXT NOT NULL DEFAULT '{}',
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_runs_workspace_id ON runs(workspace_id);
+    CREATE INDEX IF NOT EXISTS idx_runs_task_id ON runs(task_id);
+    CREATE INDEX IF NOT EXISTS idx_runs_workspace_repo_id ON runs(workspace_repo_id);
     CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
     CREATE INDEX IF NOT EXISTS idx_runs_run_type ON runs(run_type);
 
@@ -127,30 +205,6 @@ MIGRATIONS: dict[int, str] = {
         run_id TEXT PRIMARY KEY REFERENCES runs(id),
         current_seq INTEGER NOT NULL DEFAULT 0
     );
-
-    CREATE TABLE IF NOT EXISTS schema_migrations (
-        version INTEGER PRIMARY KEY,
-        applied_at TEXT NOT NULL
-    );
-    """,
-    2: """
-    ALTER TABLE runs RENAME COLUMN links_json TO external_refs_json;
-    """,
-    3: """
-    CREATE TABLE IF NOT EXISTS sessions (
-        id TEXT PRIMARY KEY,
-        title TEXT NOT NULL DEFAULT '',
-        status TEXT NOT NULL DEFAULT 'active',
-        external_refs_json TEXT NOT NULL DEFAULT '[]',
-        labels_json TEXT NOT NULL DEFAULT '{}',
-        metadata_json TEXT NOT NULL DEFAULT '{}',
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
-
-    ALTER TABLE runs ADD COLUMN session_id TEXT;
-    CREATE INDEX IF NOT EXISTS idx_runs_session_id ON runs(session_id);
     """,
 }
 

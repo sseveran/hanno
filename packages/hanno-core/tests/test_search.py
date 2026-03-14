@@ -39,12 +39,14 @@ def actor():
 def _make_run(
     *,
     run_id: str = "run-1",
+    workspace_id: str = "ws-1",
     title: str = "Test Run",
     run_type: str = "deploy",
     labels: dict | None = None,
 ) -> Run:
     return Run(
         id=run_id,
+        workspace_id=workspace_id,
         run_type=run_type,
         title=title,
         labels=labels or {},

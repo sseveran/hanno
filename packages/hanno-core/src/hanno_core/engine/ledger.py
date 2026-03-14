@@ -20,11 +20,15 @@ from hanno_core.models import (
     Lease,
     Run,
     RunStatus,
-    Session,
-    SessionStatus,
     StateVersion,
     StepRun,
     StepRunStatus,
+    Task,
+    TaskRepoLink,
+    TaskStatus,
+    Workspace,
+    WorkspaceRepo,
+    WorkspaceStatus,
 )
 from hanno_core.models.identity import ActorRef
 
@@ -66,67 +70,196 @@ class RunLedger:
         """Optional search backend for querying indexed ledger content."""
         return self._search
 
-    # --- Session lifecycle ---
+    # --- Workspace lifecycle ---
 
-    async def create_session(
+    async def create_workspace(
         self,
         *,
         title: str = "",
         external_refs: list[ExternalRef] | None = None,
         labels: dict[str, str] | None = None,
         metadata: dict[str, object] | None = None,
-    ) -> Session:
-        session = Session(
+    ) -> Workspace:
+        workspace = Workspace(
             title=title,
             external_refs=external_refs or [],
             labels=labels or {},
             metadata=metadata or {},
         )
-        return await self._storage.create_session(session)
+        return await self._storage.create_workspace(workspace)
 
-    async def get_session(self, session_id: str) -> Session | None:
-        return await self._storage.get_session(session_id)
+    async def get_workspace(self, workspace_id: str) -> Workspace | None:
+        return await self._storage.get_workspace(workspace_id)
 
-    async def close_session(self, session_id: str) -> Session:
-        session = await self._require_session(session_id)
-        if session.status != SessionStatus.ACTIVE:
-            msg = f"Cannot close session in status {session.status}"
+    async def archive_workspace(self, workspace_id: str) -> Workspace:
+        workspace = await self._require_workspace(workspace_id)
+        if workspace.status == WorkspaceStatus.ARCHIVED:
+            msg = "Workspace is already archived"
             raise InvalidTransitionError(msg)
-        session.status = SessionStatus.CLOSED
-        session.updated_at = datetime.now(UTC)
-        return await self._storage.update_session(session)
+        workspace.status = WorkspaceStatus.ARCHIVED
+        workspace.updated_at = datetime.now(UTC)
+        return await self._storage.update_workspace(workspace)
 
-    async def archive_session(self, session_id: str) -> Session:
-        session = await self._require_session(session_id)
-        if session.status == SessionStatus.ARCHIVED:
-            msg = "Session is already archived"
-            raise InvalidTransitionError(msg)
-        session.status = SessionStatus.ARCHIVED
-        session.updated_at = datetime.now(UTC)
-        return await self._storage.update_session(session)
+    async def list_workspaces(self, **kwargs: object) -> list[Workspace]:
+        return list(await self._storage.list_workspaces(**kwargs))  # type: ignore[arg-type]
 
-    async def list_sessions(self, **kwargs: object) -> list[Session]:
-        return list(await self._storage.list_sessions(**kwargs))  # type: ignore[arg-type]
-
-    async def find_sessions_by_external_ref(
+    async def find_workspaces_by_external_ref(
         self,
         *,
         system: str,
         ref_type: str,
         ref_id: str,
-        status: SessionStatus | None = None,
-    ) -> list[Session]:
+        status: WorkspaceStatus | None = None,
+    ) -> list[Workspace]:
         return list(
-            await self._storage.find_sessions_by_external_ref(
+            await self._storage.find_workspaces_by_external_ref(
                 system=system, ref_type=ref_type, ref_id=ref_id, status=status,
             )
         )
 
-    async def list_session_runs(
-        self, session_id: str, **kwargs: object
-    ) -> list[Run]:
+    async def create_workspace_repo(
+        self,
+        workspace_id: str,
+        *,
+        display_name: str = "",
+        canonical_remote: str = "",
+        local_path: str | None = None,
+        default_branch: str | None = None,
+        vcs: str = "git",
+        metadata: dict[str, object] | None = None,
+    ) -> WorkspaceRepo:
+        await self._require_workspace(workspace_id)
+        repo = WorkspaceRepo(
+            workspace_id=workspace_id,
+            vcs=vcs,
+            display_name=display_name,
+            canonical_remote=canonical_remote,
+            local_path=local_path,
+            default_branch=default_branch,
+            metadata=metadata or {},
+        )
+        return await self._storage.create_workspace_repo(repo)
+
+    async def get_workspace_repo(
+        self, workspace_repo_id: str
+    ) -> WorkspaceRepo | None:
+        return await self._storage.get_workspace_repo(workspace_repo_id)
+
+    async def list_workspace_repos(self, workspace_id: str) -> list[WorkspaceRepo]:
+        await self._require_workspace(workspace_id)
+        return list(await self._storage.list_workspace_repos(workspace_id))
+
+    async def find_workspace_repos(
+        self,
+        *,
+        canonical_remote: str | None = None,
+        local_path: str | None = None,
+        workspace_id: str | None = None,
+    ) -> list[WorkspaceRepo]:
         return list(
-            await self._storage.list_runs(session_id=session_id, **kwargs)  # type: ignore[arg-type]
+            await self._storage.find_workspace_repos(
+                canonical_remote=canonical_remote,
+                local_path=local_path,
+                workspace_id=workspace_id,
+            )
+        )
+
+    # --- Task lifecycle ---
+
+    async def create_task(
+        self,
+        workspace_id: str,
+        *,
+        title: str = "",
+        external_refs: list[ExternalRef] | None = None,
+        labels: dict[str, str] | None = None,
+        metadata: dict[str, object] | None = None,
+        workspace_repo_ids: list[str] | None = None,
+    ) -> Task:
+        await self._require_workspace(workspace_id)
+        task = Task(
+            workspace_id=workspace_id,
+            title=title,
+            external_refs=external_refs or [],
+            labels=labels or {},
+            metadata=metadata or {},
+        )
+        task = await self._storage.create_task(task)
+        for workspace_repo_id in workspace_repo_ids or []:
+            await self.link_task_repo(task.id, workspace_repo_id)
+        return task
+
+    async def get_task(self, task_id: str) -> Task | None:
+        return await self._storage.get_task(task_id)
+
+    async def close_task(self, task_id: str) -> Task:
+        task = await self._require_task(task_id)
+        if task.status != TaskStatus.ACTIVE:
+            msg = f"Cannot close task in status {task.status}"
+            raise InvalidTransitionError(msg)
+        task.status = TaskStatus.CLOSED
+        task.updated_at = datetime.now(UTC)
+        return await self._storage.update_task(task)
+
+    async def archive_task(self, task_id: str) -> Task:
+        task = await self._require_task(task_id)
+        if task.status == TaskStatus.ARCHIVED:
+            msg = "Task is already archived"
+            raise InvalidTransitionError(msg)
+        task.status = TaskStatus.ARCHIVED
+        task.updated_at = datetime.now(UTC)
+        return await self._storage.update_task(task)
+
+    async def list_tasks(self, **kwargs: object) -> list[Task]:
+        return list(await self._storage.list_tasks(**kwargs))  # type: ignore[arg-type]
+
+    async def find_tasks_by_external_ref(
+        self,
+        *,
+        workspace_id: str,
+        system: str,
+        ref_type: str,
+        ref_id: str,
+        status: TaskStatus | None = None,
+    ) -> list[Task]:
+        return list(
+            await self._storage.find_tasks_by_external_ref(
+                workspace_id=workspace_id,
+                system=system,
+                ref_type=ref_type,
+                ref_id=ref_id,
+                status=status,
+            )
+        )
+
+    async def link_task_repo(
+        self, task_id: str, workspace_repo_id: str
+    ) -> TaskRepoLink:
+        task = await self._require_task(task_id)
+        repo = await self._require_workspace_repo(workspace_repo_id)
+        if repo.workspace_id != task.workspace_id:
+            msg = "Workspace repo does not belong to the task workspace"
+            raise LedgerError(msg)
+        if await self._storage.has_task_repo_link(task_id, workspace_repo_id):
+            for link in await self._storage.list_task_repo_links(task_id):
+                if link.workspace_repo_id == workspace_repo_id:
+                    return link
+        link = TaskRepoLink(task_id=task_id, workspace_repo_id=workspace_repo_id)
+        return await self._storage.create_task_repo_link(link)
+
+    async def list_task_repos(self, task_id: str) -> list[WorkspaceRepo]:
+        await self._require_task(task_id)
+        repos: list[WorkspaceRepo] = []
+        for link in await self._storage.list_task_repo_links(task_id):
+            repo = await self._storage.get_workspace_repo(link.workspace_repo_id)
+            if repo is not None:
+                repos.append(repo)
+        return repos
+
+    async def list_task_runs(self, task_id: str, **kwargs: object) -> list[Run]:
+        await self._require_task(task_id)
+        return list(
+            await self._storage.list_runs(task_id=task_id, **kwargs)  # type: ignore[arg-type]
         )
 
     # --- Run lifecycle ---
@@ -140,15 +273,30 @@ class RunLedger:
         external_refs: list[ExternalRef] | None = None,
         labels: dict[str, str] | None = None,
         metadata: dict[str, object] | None = None,
-        session_id: str | None = None,
+        workspace_id: str,
+        task_id: str | None = None,
+        workspace_repo_id: str | None = None,
     ) -> Run:
+        await self._require_workspace(workspace_id)
+        if task_id is not None:
+            task = await self._require_task(task_id)
+            if task.workspace_id != workspace_id:
+                msg = "Task does not belong to the requested workspace"
+                raise LedgerError(msg)
+        if workspace_repo_id is not None:
+            repo = await self._require_workspace_repo(workspace_repo_id)
+            if repo.workspace_id != workspace_id:
+                msg = "Workspace repo does not belong to the requested workspace"
+                raise LedgerError(msg)
         run = Run(
+            workspace_id=workspace_id,
+            task_id=task_id,
+            workspace_repo_id=workspace_repo_id,
             run_type=run_type,
             title=title,
             external_refs=external_refs or [],
             labels=labels or {},
             metadata=metadata or {},
-            session_id=session_id,
         )
         run = await self._storage.create_run(run)
         await self._append_event(
@@ -727,12 +875,26 @@ class RunLedger:
             raise LedgerError(msg)
         return approval
 
-    async def _require_session(self, session_id: str) -> Session:
-        session = await self._storage.get_session(session_id)
-        if session is None:
-            msg = f"Session not found: {session_id}"
+    async def _require_workspace(self, workspace_id: str) -> Workspace:
+        workspace = await self._storage.get_workspace(workspace_id)
+        if workspace is None:
+            msg = f"Workspace not found: {workspace_id}"
             raise LedgerError(msg)
-        return session
+        return workspace
+
+    async def _require_workspace_repo(self, workspace_repo_id: str) -> WorkspaceRepo:
+        repo = await self._storage.get_workspace_repo(workspace_repo_id)
+        if repo is None:
+            msg = f"Workspace repo not found: {workspace_repo_id}"
+            raise LedgerError(msg)
+        return repo
+
+    async def _require_task(self, task_id: str) -> Task:
+        task = await self._storage.get_task(task_id)
+        if task is None:
+            msg = f"Task not found: {task_id}"
+            raise LedgerError(msg)
+        return task
 
     @staticmethod
     def _check_run_transition(run: Run, target: RunStatus) -> None:

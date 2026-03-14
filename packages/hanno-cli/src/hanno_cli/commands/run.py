@@ -29,7 +29,16 @@ def _actor() -> ActorRef:
 @async_command
 async def create(
     run_type: Annotated[str, typer.Argument(help="Workflow type identifier")],
+    workspace_id: Annotated[
+        str, typer.Option("--workspace-id", help="Workspace ID")
+    ],
     title: Annotated[str, typer.Option(help="Human-readable title")] = "",
+    task_id: Annotated[
+        str | None, typer.Option("--task-id", help="Task ID")
+    ] = None,
+    workspace_repo_id: Annotated[
+        str | None, typer.Option("--workspace-repo-id", help="Workspace repo ID")
+    ] = None,
     label: Annotated[
         list[str] | None,
         typer.Option("--label", "-l", help="Label as key=value"),
@@ -63,6 +72,9 @@ async def create(
         run = await ledger.create_run(
             run_type,
             actor=_actor(),
+            workspace_id=workspace_id,
+            task_id=task_id,
+            workspace_repo_id=workspace_repo_id,
             title=title,
             labels=labels,
             external_refs=external_refs,
@@ -82,6 +94,15 @@ async def list_runs(
     run_type: Annotated[
         str | None, typer.Option("--type", help="Filter by type")
     ] = None,
+    workspace_id: Annotated[
+        str | None, typer.Option("--workspace-id", help="Filter by workspace")
+    ] = None,
+    task_id: Annotated[
+        str | None, typer.Option("--task-id", help="Filter by task")
+    ] = None,
+    workspace_repo_id: Annotated[
+        str | None, typer.Option("--workspace-repo-id", help="Filter by workspace repo")
+    ] = None,
     limit: Annotated[int, typer.Option(help="Max results")] = 20,
     json_output: JsonOpt = False,
 ) -> None:
@@ -92,6 +113,12 @@ async def list_runs(
             kwargs["status"] = RunStatus(status)
         if run_type:
             kwargs["run_type"] = run_type
+        if workspace_id:
+            kwargs["workspace_id"] = workspace_id
+        if task_id:
+            kwargs["task_id"] = task_id
+        if workspace_repo_id:
+            kwargs["workspace_repo_id"] = workspace_repo_id
         runs = await ledger.list_runs(**kwargs)
     print_runs_table([r.model_dump() for r in runs], as_json=json_output)
 

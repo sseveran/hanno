@@ -2,12 +2,13 @@
 
 from mcp.server.fastmcp import FastMCP
 
-from . import approvals, artifacts, events, runs, search, sessions, steps
+from . import approvals, artifacts, events, runs, search, steps, tasks, workspaces
 
 
 def register_all_tools(mcp: FastMCP) -> None:
     """Register all Hanno tools on the MCP server."""
-    sessions.register(mcp)
+    workspaces.register(mcp)
+    tasks.register(mcp)
     runs.register(mcp)
     steps.register(mcp)
     events.register(mcp)

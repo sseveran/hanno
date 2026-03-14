@@ -67,6 +67,11 @@ def print_run(run: dict[str, Any], *, as_json: bool = False) -> None:
     console.print(f"[bold]Run {run['id']}[/bold]")
     console.print(f"  Type:    {run['run_type']}")
     console.print(f"  Status:  {styled_status(run['status'])}")
+    console.print(f"  Workspace: {run['workspace_id']}")
+    if run.get("task_id"):
+        console.print(f"  Task:    {run['task_id']}")
+    if run.get("workspace_repo_id"):
+        console.print(f"  Repo:    {run['workspace_repo_id']}")
     if run.get("title"):
         console.print(f"  Title:   {run['title']}")
     if run.get("labels"):
@@ -93,6 +98,8 @@ def print_runs_table(
     table.add_column("ID", style="bold")
     table.add_column("Type")
     table.add_column("Status")
+    table.add_column("Workspace")
+    table.add_column("Task")
     table.add_column("Title", max_width=30)
     table.add_column("Created")
     for r in runs:
@@ -100,6 +107,8 @@ def print_runs_table(
             r["id"],
             r["run_type"],
             styled_status(r["status"]),
+            r["workspace_id"],
+            r.get("task_id") or "",
             r.get("title", ""),
             str(r["created_at"])[:19],
         )

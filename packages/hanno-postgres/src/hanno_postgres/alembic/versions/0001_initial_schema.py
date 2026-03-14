@@ -17,7 +17,8 @@ depends_on: str | None = None
 
 
 def upgrade() -> None:
-    op.execute("""
+    op.execute(
+        """
         CREATE TABLE IF NOT EXISTS runs (
             id TEXT PRIMARY KEY,
             run_type TEXT NOT NULL,
@@ -29,11 +30,13 @@ def upgrade() -> None:
             created_at TIMESTAMPTZ NOT NULL,
             updated_at TIMESTAMPTZ NOT NULL
         )
-    """)
+        """
+    )
     op.execute("CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status)")
     op.execute("CREATE INDEX IF NOT EXISTS idx_runs_run_type ON runs(run_type)")
 
-    op.execute("""
+    op.execute(
+        """
         CREATE TABLE IF NOT EXISTS events (
             id TEXT PRIMARY KEY,
             run_id TEXT NOT NULL REFERENCES runs(id),
@@ -48,13 +51,13 @@ def upgrade() -> None:
             timestamp TIMESTAMPTZ NOT NULL,
             UNIQUE(run_id, sequence)
         )
-    """)
-    op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_events_run_seq ON events(run_id, sequence)"
+        """
     )
+    op.execute("CREATE INDEX IF NOT EXISTS idx_events_run_seq ON events(run_id, sequence)")
     op.execute("CREATE INDEX IF NOT EXISTS idx_events_kind ON events(kind)")
 
-    op.execute("""
+    op.execute(
+        """
         CREATE TABLE IF NOT EXISTS step_runs (
             id TEXT PRIMARY KEY,
             run_id TEXT NOT NULL REFERENCES runs(id),
@@ -68,12 +71,12 @@ def upgrade() -> None:
             metadata_json JSONB NOT NULL DEFAULT '{}',
             created_at TIMESTAMPTZ NOT NULL
         )
-    """)
-    op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_step_runs_run_id ON step_runs(run_id)"
+        """
     )
+    op.execute("CREATE INDEX IF NOT EXISTS idx_step_runs_run_id ON step_runs(run_id)")
 
-    op.execute("""
+    op.execute(
+        """
         CREATE TABLE IF NOT EXISTS edges (
             id TEXT PRIMARY KEY,
             run_id TEXT NOT NULL REFERENCES runs(id),
@@ -82,10 +85,12 @@ def upgrade() -> None:
             kind TEXT NOT NULL,
             metadata_json JSONB NOT NULL DEFAULT '{}'
         )
-    """)
+        """
+    )
     op.execute("CREATE INDEX IF NOT EXISTS idx_edges_run_id ON edges(run_id)")
 
-    op.execute("""
+    op.execute(
+        """
         CREATE TABLE IF NOT EXISTS state_versions (
             id TEXT PRIMARY KEY,
             run_id TEXT NOT NULL REFERENCES runs(id),
@@ -96,13 +101,12 @@ def upgrade() -> None:
             actor_json JSONB NOT NULL,
             created_at TIMESTAMPTZ NOT NULL
         )
-    """)
-    op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_state_versions_run_id "
-        "ON state_versions(run_id)"
+        """
     )
+    op.execute("CREATE INDEX IF NOT EXISTS idx_state_versions_run_id ON state_versions(run_id)")
 
-    op.execute("""
+    op.execute(
+        """
         CREATE TABLE IF NOT EXISTS artifacts (
             id TEXT PRIMARY KEY,
             run_id TEXT NOT NULL REFERENCES runs(id),
@@ -116,12 +120,12 @@ def upgrade() -> None:
             metadata_json JSONB NOT NULL DEFAULT '{}',
             created_at TIMESTAMPTZ NOT NULL
         )
-    """)
-    op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_artifacts_run_id ON artifacts(run_id)"
+        """
     )
+    op.execute("CREATE INDEX IF NOT EXISTS idx_artifacts_run_id ON artifacts(run_id)")
 
-    op.execute("""
+    op.execute(
+        """
         CREATE TABLE IF NOT EXISTS approvals (
             id TEXT PRIMARY KEY,
             run_id TEXT NOT NULL REFERENCES runs(id),
@@ -136,15 +140,13 @@ def upgrade() -> None:
             requested_at TIMESTAMPTZ NOT NULL,
             resolved_at TIMESTAMPTZ
         )
-    """)
-    op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_approvals_run_id ON approvals(run_id)"
+        """
     )
-    op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_approvals_status ON approvals(status)"
-    )
+    op.execute("CREATE INDEX IF NOT EXISTS idx_approvals_run_id ON approvals(run_id)")
+    op.execute("CREATE INDEX IF NOT EXISTS idx_approvals_status ON approvals(status)")
 
-    op.execute("""
+    op.execute(
+        """
         CREATE TABLE IF NOT EXISTS leases (
             id TEXT PRIMARY KEY,
             run_id TEXT NOT NULL REFERENCES runs(id),
@@ -154,18 +156,19 @@ def upgrade() -> None:
             acquired_at TIMESTAMPTZ NOT NULL,
             expires_at TIMESTAMPTZ NOT NULL
         )
-    """)
-    op.execute("CREATE INDEX IF NOT EXISTS idx_leases_run_id ON leases(run_id)")
-    op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_leases_expires_at ON leases(expires_at)"
+        """
     )
+    op.execute("CREATE INDEX IF NOT EXISTS idx_leases_run_id ON leases(run_id)")
+    op.execute("CREATE INDEX IF NOT EXISTS idx_leases_expires_at ON leases(expires_at)")
 
-    op.execute("""
+    op.execute(
+        """
         CREATE TABLE IF NOT EXISTS sequence_counters (
             run_id TEXT PRIMARY KEY REFERENCES runs(id),
             current_seq INTEGER NOT NULL DEFAULT 0
         )
-    """)
+        """
+    )
 
 
 def downgrade() -> None:

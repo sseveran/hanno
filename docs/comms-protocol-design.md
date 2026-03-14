@@ -1,5 +1,9 @@
 # Agent Communications Protocol — Design Document
 
+Note: This document uses "session" in the Claude Code sense. In Hanno's current
+domain model, the first-class grouping hierarchy is `workspace -> task -> run`.
+External tool sessions remain metadata attached to runs and steps.
+
 ## The Pattern We're Solving
 
 An AI agent is invoked to do work — respond to PR feedback, implement a feature,
@@ -209,7 +213,7 @@ NOTE events with a `comms_type` discriminator) or stored as artifacts.
 ### RunContext
 - Holds current run_id, step_run_id, actor, workflow_run_id
 - Provides "find or create workflow" logic
-- Manages the session↔workflow relationship
+- Manages the external tool session to workflow relationship
 
 ### Recorder
 High-level API for the agent to use:
@@ -223,9 +227,9 @@ High-level API for the agent to use:
 - `get_run_digest(workflow_run_id)` — summarized history for context loading
 - `get_previous_aars(workflow_run_id)` — list prior AARs
 - `find_step_by_name(run_id, name)` — lookup specific past work
-- `get_session_history(workflow_run_id)` — list all sessions with summaries
+- `get_run_history(workflow_run_id)` — list all related runs with summaries
 
 ### Projections
 - Derive AAR from event stream (what actually happened vs. what was intended)
 - Build run digest (filter noise, highlight key events)
-- Generate session timeline
+- Generate run timeline

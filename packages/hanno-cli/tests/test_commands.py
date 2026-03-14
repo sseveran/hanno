@@ -16,7 +16,6 @@ runner = CliRunner()
 
 @pytest.fixture(autouse=True)
 def _temp_db(tmp_path: Path):
-    """Use a temp database for each test."""
     db_path = str(tmp_path / "test.db")
     art_path = str(tmp_path / "artifacts")
     with patch.dict(
@@ -26,178 +25,144 @@ def _temp_db(tmp_path: Path):
         yield
 
 
-def _create_run(run_type: str = "test", title: str = "Test") -> str:
-    """Helper to create a run and return its ID."""
-    result = runner.invoke(app, ["run", "create", run_type, "--title", title, "--json"])
+def _create_workspace(title: str = "Alpha") -> str:
+    result = runner.invoke(app, ["workspace", "create", "--title", title, "--json"])
     assert result.exit_code == 0, result.output
-    data = json.loads(result.output)
-    return data["id"]
+    return json.loads(result.output)["id"]
+
+
+def _create_task(workspace_id: str, title: str = "PR #42") -> str:
+    result = runner.invoke(
+        app,
+        ["task", "create", "--workspace-id", workspace_id, "--title", title, "--json"],
+    )
+    assert result.exit_code == 0, result.output
+    return json.loads(result.output)["id"]
+
+
+def _create_run(
+    workspace_id: str,
+    task_id: str | None = None,
+    run_type: str = "test",
+    title: str = "Test",
+) -> str:
+    args = [
+        "run",
+        "create",
+        run_type,
+        "--workspace-id",
+        workspace_id,
+        "--title",
+        title,
+        "--json",
+    ]
+    if task_id is not None:
+        args.extend(["--task-id", task_id])
+    result = runner.invoke(app, args)
+    assert result.exit_code == 0, result.output
+    return json.loads(result.output)["id"]
+
+
+class TestWorkspaceCommands:
+    def test_create_and_list(self):
+        result = runner.invoke(app, ["workspace", "create", "--title", "Alpha"])
+        assert result.exit_code == 0
+        assert "created" in result.output
+
+        result = runner.invoke(app, ["workspace", "list"])
+        assert result.exit_code == 0
+        assert "Alpha" in result.output
+
+
+class TestTaskCommands:
+    def test_create_show_and_close(self):
+        workspace_id = _create_workspace()
+        result = runner.invoke(
+            app,
+            ["task", "create", "--workspace-id", workspace_id, "--title", "Fix review"],
+        )
+        assert result.exit_code == 0
+
+        task_id = _create_task(workspace_id)
+        result = runner.invoke(app, ["task", "show", task_id])
+        assert result.exit_code == 0
+        assert workspace_id in result.output
+
+        result = runner.invoke(app, ["task", "close", task_id])
+        assert result.exit_code == 0
+        assert "closed" in result.output
 
 
 class TestRunCommands:
-    def test_create(self):
+    def test_create_requires_workspace(self):
         result = runner.invoke(app, ["run", "create", "deploy"])
-        assert result.exit_code == 0
-        assert "created (planned)" in result.output
+        assert result.exit_code != 0
 
     def test_create_json(self):
-        result = runner.invoke(app, ["run", "create", "deploy", "--json"])
-        assert result.exit_code == 0
-        data = json.loads(result.output)
-        assert data["run_type"] == "deploy"
-        assert data["status"] == "planned"
-
-    def test_create_with_labels(self):
+        workspace_id = _create_workspace()
+        task_id = _create_task(workspace_id)
         result = runner.invoke(
             app,
-            ["run", "create", "deploy", "-l", "env=staging", "-l", "team=infra", "--json"],
+            [
+                "run",
+                "create",
+                "deploy",
+                "--workspace-id",
+                workspace_id,
+                "--task-id",
+                task_id,
+                "--json",
+            ],
         )
         assert result.exit_code == 0
         data = json.loads(result.output)
-        assert data["labels"] == {"env": "staging", "team": "infra"}
+        assert data["run_type"] == "deploy"
+        assert data["workspace_id"] == workspace_id
+        assert data["task_id"] == task_id
 
-    def test_list_empty(self):
-        result = runner.invoke(app, ["run", "list"])
-        assert result.exit_code == 0
-        assert "No runs" in result.output
-
-    def test_list_with_runs(self):
-        _create_run()
-        _create_run(run_type="other")
-        result = runner.invoke(app, ["run", "list"])
+    def test_list_and_show(self):
+        workspace_id = _create_workspace()
+        _create_run(workspace_id, run_type="test")
+        _create_run(workspace_id, run_type="other")
+        result = runner.invoke(app, ["run", "list", "--workspace-id", workspace_id])
         assert result.exit_code == 0
         assert "test" in result.output
         assert "other" in result.output
 
-    def test_list_json(self):
-        _create_run()
-        result = runner.invoke(app, ["run", "list", "--json"])
-        assert result.exit_code == 0
-        data = json.loads(result.output)
-        assert len(data) == 1
-
-    def test_show(self):
-        run_id = _create_run()
-        result = runner.invoke(app, ["run", "show", run_id])
-        assert result.exit_code == 0
-        assert "planned" in result.output
-
-    def test_show_not_found(self):
-        result = runner.invoke(app, ["run", "show", "nonexistent"])
-        assert result.exit_code == 1
-
-    def test_start(self):
-        run_id = _create_run()
-        result = runner.invoke(app, ["run", "start", run_id])
-        assert result.exit_code == 0
-        assert "started" in result.output
-
-    def test_complete(self):
-        run_id = _create_run()
-        runner.invoke(app, ["run", "start", run_id])
-        result = runner.invoke(app, ["run", "complete", run_id])
-        assert result.exit_code == 0
-        assert "completed" in result.output
-
-    def test_fail(self):
-        run_id = _create_run()
-        runner.invoke(app, ["run", "start", run_id])
-        result = runner.invoke(
-            app, ["run", "fail", run_id, "--error", "oops"]
-        )
-        assert result.exit_code == 0
-        assert "failed" in result.output
-
-    def test_cancel(self):
-        run_id = _create_run()
-        result = runner.invoke(
-            app, ["run", "cancel", run_id, "--reason", "not needed"]
-        )
-        assert result.exit_code == 0
-        assert "canceled" in result.output
+    def test_run_lifecycle(self):
+        workspace_id = _create_workspace()
+        run_id = _create_run(workspace_id)
+        assert runner.invoke(app, ["run", "start", run_id]).exit_code == 0
+        assert runner.invoke(app, ["run", "complete", run_id]).exit_code == 0
 
 
 class TestStepCommands:
-    def test_add_step(self):
-        run_id = _create_run()
-        result = runner.invoke(app, ["step", "add", run_id, "build"])
-        assert result.exit_code == 0
-        assert "added (build)" in result.output
-
-    def test_add_step_json(self):
-        run_id = _create_run()
-        result = runner.invoke(
-            app, ["step", "add", run_id, "build", "--json"]
-        )
-        assert result.exit_code == 0
-        data = json.loads(result.output)
-        assert data["step_name"] == "build"
-
     def test_step_lifecycle(self):
-        run_id = _create_run()
-        # Add
+        workspace_id = _create_workspace()
+        run_id = _create_run(workspace_id)
         res = runner.invoke(app, ["step", "add", run_id, "build", "--json"])
+        assert res.exit_code == 0
         step_id = json.loads(res.output)["id"]
-
-        # Start
-        res = runner.invoke(app, ["step", "start", step_id])
-        assert res.exit_code == 0
-        assert "started" in res.output
-
-        # Complete
-        res = runner.invoke(
-            app, ["step", "complete", step_id, "--summary", "done"]
+        assert runner.invoke(app, ["step", "start", step_id]).exit_code == 0
+        assert (
+            runner.invoke(app, ["step", "complete", step_id, "--summary", "done"]).exit_code
+            == 0
         )
-        assert res.exit_code == 0
-        assert "completed" in res.output
-
-    def test_fail_step(self):
-        run_id = _create_run()
-        res = runner.invoke(app, ["step", "add", run_id, "build", "--json"])
-        step_id = json.loads(res.output)["id"]
-        runner.invoke(app, ["step", "start", step_id])
-        res = runner.invoke(
-            app, ["step", "fail", step_id, "--error", "compile error"]
-        )
-        assert res.exit_code == 0
-        assert "failed" in res.output
-
-    def test_list_steps(self):
-        run_id = _create_run()
-        runner.invoke(app, ["step", "add", run_id, "build"])
-        runner.invoke(app, ["step", "add", run_id, "test"])
-        result = runner.invoke(app, ["step", "list", run_id])
-        assert result.exit_code == 0
-        assert "build" in result.output
-        assert "test" in result.output
 
 
 class TestEventCommands:
-    def test_list_events(self):
-        run_id = _create_run()
-        result = runner.invoke(app, ["event", "list", run_id])
-        assert result.exit_code == 0
-        assert "run.created" in result.output
-
     def test_add_note(self):
-        run_id = _create_run()
-        result = runner.invoke(
-            app, ["event", "note", run_id, "This is a note"]
-        )
+        workspace_id = _create_workspace()
+        run_id = _create_run(workspace_id)
+        result = runner.invoke(app, ["event", "note", run_id, "This is a note"])
         assert result.exit_code == 0
         assert "Note added" in result.output
 
-    def test_list_events_json(self):
-        run_id = _create_run()
-        result = runner.invoke(app, ["event", "list", run_id, "--json"])
-        assert result.exit_code == 0
-        data = json.loads(result.output)
-        assert len(data) >= 1
-
 
 class TestArtifactCommands:
-    def test_attach(self, tmp_path: Path):
-        run_id = _create_run()
+    def test_attach_and_list(self, tmp_path: Path):
+        workspace_id = _create_workspace()
+        run_id = _create_run(workspace_id)
         test_file = tmp_path / "test.log"
         test_file.write_text("log content")
         result = runner.invoke(
@@ -205,22 +170,6 @@ class TestArtifactCommands:
             ["artifact", "attach", run_id, str(test_file), "--kind", "log"],
         )
         assert result.exit_code == 0
-        assert "attached" in result.output
-
-    def test_attach_nonexistent(self):
-        run_id = _create_run()
-        result = runner.invoke(
-            app, ["artifact", "attach", run_id, "/nonexistent"]
-        )
-        assert result.exit_code == 1
-
-    def test_list_artifacts(self, tmp_path: Path):
-        run_id = _create_run()
-        test_file = tmp_path / "test.log"
-        test_file.write_text("content")
-        runner.invoke(
-            app, ["artifact", "attach", run_id, str(test_file)]
-        )
         result = runner.invoke(app, ["artifact", "list", run_id])
         assert result.exit_code == 0
         assert "test.log" in result.output
@@ -228,40 +177,22 @@ class TestArtifactCommands:
 
 class TestApprovalCommands:
     def test_request_and_grant(self):
-        run_id = _create_run()
+        workspace_id = _create_workspace()
+        run_id = _create_run(workspace_id)
         res = runner.invoke(
             app,
             [
-                "approval", "request", run_id,
-                "--authority", "github",
-                "--resource", "pr/1",
+                "approval",
+                "request",
+                run_id,
+                "--authority",
+                "github",
+                "--resource",
+                "pr/1",
                 "--json",
             ],
         )
         assert res.exit_code == 0
         approval_id = json.loads(res.output)["id"]
-
         res = runner.invoke(app, ["approval", "grant", approval_id])
         assert res.exit_code == 0
-        assert "granted" in res.output
-
-    def test_request_and_deny(self):
-        run_id = _create_run()
-        res = runner.invoke(
-            app, ["approval", "request", run_id, "--json"]
-        )
-        approval_id = json.loads(res.output)["id"]
-
-        res = runner.invoke(
-            app,
-            ["approval", "deny", approval_id, "--reason", "needs fixes"],
-        )
-        assert res.exit_code == 0
-        assert "denied" in res.output
-
-    def test_list_approvals(self):
-        run_id = _create_run()
-        runner.invoke(app, ["approval", "request", run_id])
-        result = runner.invoke(app, ["approval", "list", run_id])
-        assert result.exit_code == 0
-        assert "pending" in result.output

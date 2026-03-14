@@ -20,11 +20,15 @@ from hanno_core.models import (
     Lease,
     Run,
     RunStatus,
-    Session,
-    SessionStatus,
     StateVersion,
     StepRun,
     StepRunStatus,
+    Task,
+    TaskRepoLink,
+    TaskStatus,
+    Workspace,
+    WorkspaceRepo,
+    WorkspaceStatus,
 )
 from hanno_core.models.identity import ActorRef
 
@@ -33,10 +37,7 @@ from .migrations import run_migrations
 
 
 class SqliteStorageBackend:
-    """SQLite implementation of the StorageBackend protocol.
-
-    Uses WAL mode for better concurrency and foreign keys for integrity.
-    """
+    """SQLite implementation of the StorageBackend protocol."""
 
     def __init__(self, db_path: str | Path = ":memory:") -> None:
         self._db_path = str(db_path)
@@ -61,56 +62,56 @@ class SqliteStorageBackend:
             await self._conn.close()
             self._conn = None
 
-    # --- Sessions ---
+    # --- Workspaces ---
 
-    async def create_session(self, session: Session) -> Session:
+    async def create_workspace(self, workspace: Workspace) -> Workspace:
         await self._db.execute(
-            Q.INSERT_SESSION,
+            Q.INSERT_WORKSPACE,
             (
-                session.id,
-                session.title,
-                session.status.value,
-                json.dumps([r.model_dump() for r in session.external_refs]),
-                json.dumps(session.labels),
-                json.dumps(session.metadata, default=str),
-                session.created_at.isoformat(),
-                session.updated_at.isoformat(),
+                workspace.id,
+                workspace.title,
+                workspace.status.value,
+                json.dumps([r.model_dump() for r in workspace.external_refs]),
+                json.dumps(workspace.labels),
+                json.dumps(workspace.metadata, default=str),
+                workspace.created_at.isoformat(),
+                workspace.updated_at.isoformat(),
             ),
         )
         await self._db.commit()
-        return session
+        return workspace
 
-    async def get_session(self, session_id: str) -> Session | None:
-        cursor = await self._db.execute(Q.SELECT_SESSION, (session_id,))
+    async def get_workspace(self, workspace_id: str) -> Workspace | None:
+        cursor = await self._db.execute(Q.SELECT_WORKSPACE, (workspace_id,))
         row = await cursor.fetchone()
         if row is None:
             return None
-        return _row_to_session(row)
+        return _row_to_workspace(row)
 
-    async def update_session(self, session: Session) -> Session:
+    async def update_workspace(self, workspace: Workspace) -> Workspace:
         await self._db.execute(
-            Q.UPDATE_SESSION,
+            Q.UPDATE_WORKSPACE,
             (
-                session.title,
-                session.status.value,
-                json.dumps([r.model_dump() for r in session.external_refs]),
-                json.dumps(session.labels),
-                json.dumps(session.metadata, default=str),
-                session.updated_at.isoformat(),
-                session.id,
+                workspace.title,
+                workspace.status.value,
+                json.dumps([r.model_dump() for r in workspace.external_refs]),
+                json.dumps(workspace.labels),
+                json.dumps(workspace.metadata, default=str),
+                workspace.updated_at.isoformat(),
+                workspace.id,
             ),
         )
         await self._db.commit()
-        return session
+        return workspace
 
-    async def list_sessions(
+    async def list_workspaces(
         self,
         *,
-        status: SessionStatus | None = None,
+        status: WorkspaceStatus | None = None,
         labels: dict[str, str] | None = None,
         limit: int = 50,
         offset: int = 0,
-    ) -> Sequence[Session]:
+    ) -> Sequence[Workspace]:
         clauses: list[str] = []
         params: list[object] = []
         if status is not None:
@@ -118,42 +119,250 @@ class SqliteStorageBackend:
             params.append(status.value)
 
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
-        sql = f"SELECT * FROM sessions{where} ORDER BY created_at DESC LIMIT ? OFFSET ?"
+        sql = f"SELECT * FROM workspaces{where} ORDER BY created_at DESC LIMIT ? OFFSET ?"
         params.extend([limit, offset])
 
         cursor = await self._db.execute(sql, params)
         rows = await cursor.fetchall()
-        sessions = [_row_to_session(r) for r in rows]
-
+        workspaces = [_row_to_workspace(r) for r in rows]
         if labels:
-            sessions = [
-                s
-                for s in sessions
-                if all(s.labels.get(k) == v for k, v in labels.items())
+            workspaces = [
+                w
+                for w in workspaces
+                if all(w.labels.get(k) == v for k, v in labels.items())
             ]
-        return sessions
+        return workspaces
 
-    async def find_sessions_by_external_ref(
+    async def find_workspaces_by_external_ref(
         self,
         *,
         system: str,
         ref_type: str,
         ref_id: str,
-        status: SessionStatus | None = None,
-    ) -> Sequence[Session]:
-        sql = "SELECT * FROM sessions ORDER BY created_at DESC"
-        cursor = await self._db.execute(sql)
+        status: WorkspaceStatus | None = None,
+    ) -> Sequence[Workspace]:
+        cursor = await self._db.execute(
+            "SELECT * FROM workspaces ORDER BY created_at DESC"
+        )
         rows = await cursor.fetchall()
-        results: list[Session] = []
+        results: list[Workspace] = []
         for row in rows:
-            session = _row_to_session(row)
-            if status is not None and session.status != status:
+            workspace = _row_to_workspace(row)
+            if status is not None and workspace.status != status:
                 continue
-            for ref in session.external_refs:
+            for ref in workspace.external_refs:
                 if ref.system == system and ref.ref_type == ref_type and ref.ref_id == ref_id:
-                    results.append(session)
+                    results.append(workspace)
                     break
         return results
+
+    # --- Workspace repos ---
+
+    async def create_workspace_repo(self, repo: WorkspaceRepo) -> WorkspaceRepo:
+        await self._db.execute(
+            Q.INSERT_WORKSPACE_REPO,
+            (
+                repo.id,
+                repo.workspace_id,
+                repo.vcs,
+                repo.display_name,
+                repo.canonical_remote,
+                repo.local_path,
+                repo.default_branch,
+                json.dumps(repo.metadata, default=str),
+                repo.created_at.isoformat(),
+                repo.updated_at.isoformat(),
+            ),
+        )
+        await self._db.commit()
+        return repo
+
+    async def get_workspace_repo(self, workspace_repo_id: str) -> WorkspaceRepo | None:
+        cursor = await self._db.execute(Q.SELECT_WORKSPACE_REPO, (workspace_repo_id,))
+        row = await cursor.fetchone()
+        if row is None:
+            return None
+        return _row_to_workspace_repo(row)
+
+    async def update_workspace_repo(self, repo: WorkspaceRepo) -> WorkspaceRepo:
+        await self._db.execute(
+            Q.UPDATE_WORKSPACE_REPO,
+            (
+                repo.vcs,
+                repo.display_name,
+                repo.canonical_remote,
+                repo.local_path,
+                repo.default_branch,
+                json.dumps(repo.metadata, default=str),
+                repo.updated_at.isoformat(),
+                repo.id,
+            ),
+        )
+        await self._db.commit()
+        return repo
+
+    async def list_workspace_repos(self, workspace_id: str) -> Sequence[WorkspaceRepo]:
+        cursor = await self._db.execute(
+            "SELECT * FROM workspace_repos WHERE workspace_id = ? ORDER BY created_at ASC",
+            (workspace_id,),
+        )
+        rows = await cursor.fetchall()
+        return [_row_to_workspace_repo(r) for r in rows]
+
+    async def find_workspace_repos(
+        self,
+        *,
+        canonical_remote: str | None = None,
+        local_path: str | None = None,
+        workspace_id: str | None = None,
+    ) -> Sequence[WorkspaceRepo]:
+        clauses: list[str] = []
+        params: list[object] = []
+        if workspace_id is not None:
+            clauses.append("workspace_id = ?")
+            params.append(workspace_id)
+        if canonical_remote is not None:
+            clauses.append("canonical_remote = ?")
+            params.append(canonical_remote)
+        if local_path is not None:
+            clauses.append("local_path = ?")
+            params.append(local_path)
+
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        sql = f"SELECT * FROM workspace_repos{where} ORDER BY created_at ASC"
+        cursor = await self._db.execute(sql, params)
+        rows = await cursor.fetchall()
+        return [_row_to_workspace_repo(r) for r in rows]
+
+    # --- Tasks ---
+
+    async def create_task(self, task: Task) -> Task:
+        await self._db.execute(
+            Q.INSERT_TASK,
+            (
+                task.id,
+                task.workspace_id,
+                task.title,
+                task.status.value,
+                json.dumps([r.model_dump() for r in task.external_refs]),
+                json.dumps(task.labels),
+                json.dumps(task.metadata, default=str),
+                task.created_at.isoformat(),
+                task.updated_at.isoformat(),
+            ),
+        )
+        await self._db.commit()
+        return task
+
+    async def get_task(self, task_id: str) -> Task | None:
+        cursor = await self._db.execute(Q.SELECT_TASK, (task_id,))
+        row = await cursor.fetchone()
+        if row is None:
+            return None
+        return _row_to_task(row)
+
+    async def update_task(self, task: Task) -> Task:
+        await self._db.execute(
+            Q.UPDATE_TASK,
+            (
+                task.title,
+                task.status.value,
+                json.dumps([r.model_dump() for r in task.external_refs]),
+                json.dumps(task.labels),
+                json.dumps(task.metadata, default=str),
+                task.updated_at.isoformat(),
+                task.id,
+            ),
+        )
+        await self._db.commit()
+        return task
+
+    async def list_tasks(
+        self,
+        *,
+        workspace_id: str | None = None,
+        status: TaskStatus | None = None,
+        labels: dict[str, str] | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> Sequence[Task]:
+        clauses: list[str] = []
+        params: list[object] = []
+        if workspace_id is not None:
+            clauses.append("workspace_id = ?")
+            params.append(workspace_id)
+        if status is not None:
+            clauses.append("status = ?")
+            params.append(status.value)
+
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        sql = f"SELECT * FROM tasks{where} ORDER BY created_at DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+
+        cursor = await self._db.execute(sql, params)
+        rows = await cursor.fetchall()
+        tasks = [_row_to_task(r) for r in rows]
+        if labels:
+            tasks = [
+                t
+                for t in tasks
+                if all(t.labels.get(k) == v for k, v in labels.items())
+            ]
+        return tasks
+
+    async def find_tasks_by_external_ref(
+        self,
+        *,
+        workspace_id: str,
+        system: str,
+        ref_type: str,
+        ref_id: str,
+        status: TaskStatus | None = None,
+    ) -> Sequence[Task]:
+        cursor = await self._db.execute(
+            "SELECT * FROM tasks WHERE workspace_id = ? ORDER BY created_at DESC",
+            (workspace_id,),
+        )
+        rows = await cursor.fetchall()
+        results: list[Task] = []
+        for row in rows:
+            task = _row_to_task(row)
+            if status is not None and task.status != status:
+                continue
+            for ref in task.external_refs:
+                if ref.system == system and ref.ref_type == ref_type and ref.ref_id == ref_id:
+                    results.append(task)
+                    break
+        return results
+
+    async def create_task_repo_link(self, link: TaskRepoLink) -> TaskRepoLink:
+        await self._db.execute(
+            Q.INSERT_TASK_REPO_LINK,
+            (
+                link.id,
+                link.task_id,
+                link.workspace_repo_id,
+                link.created_at.isoformat(),
+            ),
+        )
+        await self._db.commit()
+        return link
+
+    async def list_task_repo_links(self, task_id: str) -> Sequence[TaskRepoLink]:
+        cursor = await self._db.execute(
+            "SELECT * FROM task_repo_links WHERE task_id = ? ORDER BY created_at ASC",
+            (task_id,),
+        )
+        rows = await cursor.fetchall()
+        return [_row_to_task_repo_link(r) for r in rows]
+
+    async def has_task_repo_link(self, task_id: str, workspace_repo_id: str) -> bool:
+        cursor = await self._db.execute(
+            "SELECT 1 FROM task_repo_links WHERE task_id = ? AND workspace_repo_id = ?",
+            (task_id, workspace_repo_id),
+        )
+        row = await cursor.fetchone()
+        return row is not None
 
     # --- Runs ---
 
@@ -162,13 +371,15 @@ class SqliteStorageBackend:
             Q.INSERT_RUN,
             (
                 run.id,
+                run.workspace_id,
+                run.task_id,
+                run.workspace_repo_id,
                 run.run_type,
                 run.status.value,
                 run.title,
                 json.dumps([r.model_dump() for r in run.external_refs]),
                 json.dumps(run.labels),
                 json.dumps(run.metadata, default=str),
-                run.session_id,
                 run.created_at.isoformat(),
                 run.updated_at.isoformat(),
             ),
@@ -188,7 +399,9 @@ class SqliteStorageBackend:
         *,
         status: RunStatus | None = None,
         run_type: str | None = None,
-        session_id: str | None = None,
+        workspace_id: str | None = None,
+        task_id: str | None = None,
+        workspace_repo_id: str | None = None,
         labels: dict[str, str] | None = None,
         limit: int = 50,
         offset: int = 0,
@@ -201,9 +414,15 @@ class SqliteStorageBackend:
         if run_type is not None:
             clauses.append("run_type = ?")
             params.append(run_type)
-        if session_id is not None:
-            clauses.append("session_id = ?")
-            params.append(session_id)
+        if workspace_id is not None:
+            clauses.append("workspace_id = ?")
+            params.append(workspace_id)
+        if task_id is not None:
+            clauses.append("task_id = ?")
+            params.append(task_id)
+        if workspace_repo_id is not None:
+            clauses.append("workspace_repo_id = ?")
+            params.append(workspace_repo_id)
 
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         sql = f"SELECT * FROM runs{where} ORDER BY created_at DESC LIMIT ? OFFSET ?"
@@ -212,7 +431,6 @@ class SqliteStorageBackend:
         cursor = await self._db.execute(sql, params)
         rows = await cursor.fetchall()
         runs = [_row_to_run(r) for r in rows]
-
         if labels:
             runs = [
                 r
@@ -225,12 +443,14 @@ class SqliteStorageBackend:
         await self._db.execute(
             Q.UPDATE_RUN,
             (
+                run.workspace_id,
+                run.task_id,
+                run.workspace_repo_id,
                 run.status.value,
                 run.title,
                 json.dumps([r.model_dump() for r in run.external_refs]),
                 json.dumps(run.labels),
                 json.dumps(run.metadata, default=str),
-                run.session_id,
                 run.updated_at.isoformat(),
                 run.id,
             ),
@@ -246,8 +466,7 @@ class SqliteStorageBackend:
         ref_id: str,
         status: RunStatus | None = None,
     ) -> Sequence[Run]:
-        sql = "SELECT * FROM runs ORDER BY created_at DESC"
-        cursor = await self._db.execute(sql)
+        cursor = await self._db.execute("SELECT * FROM runs ORDER BY created_at DESC")
         rows = await cursor.fetchall()
         results: list[Run] = []
         for row in rows:
@@ -396,7 +615,8 @@ class SqliteStorageBackend:
 
     async def list_edges(self, run_id: str) -> Sequence[Edge]:
         cursor = await self._db.execute(
-            "SELECT * FROM edges WHERE run_id = ?", (run_id,)
+            "SELECT * FROM edges WHERE run_id = ?",
+            (run_id,),
         )
         rows = await cursor.fetchall()
         return [_row_to_edge(r) for r in rows]
@@ -476,7 +696,6 @@ class SqliteStorageBackend:
     ) -> Sequence[Artifact]:
         clauses = ["run_id = ?"]
         params: list[object] = [run_id]
-
         if step_run_id is not None:
             clauses.append("step_run_id = ?")
             params.append(step_run_id)
@@ -484,9 +703,7 @@ class SqliteStorageBackend:
             clauses.append("kind = ?")
             params.append(kind)
 
-        where = " AND ".join(clauses)
-        sql = f"SELECT * FROM artifacts WHERE {where} ORDER BY created_at ASC"
-
+        sql = f"SELECT * FROM artifacts WHERE {' AND '.join(clauses)} ORDER BY created_at ASC"
         cursor = await self._db.execute(sql, params)
         rows = await cursor.fetchall()
         return [_row_to_artifact(r) for r in rows]
@@ -524,10 +741,12 @@ class SqliteStorageBackend:
     async def list_approvals(
         self, run_id: str, *, status: ApprovalStatus | None = None
     ) -> Sequence[Approval]:
-        if status:
+        if status is not None:
             cursor = await self._db.execute(
-                "SELECT * FROM approvals WHERE run_id = ? AND status = ?"
-                " ORDER BY requested_at ASC",
+                (
+                    "SELECT * FROM approvals WHERE run_id = ? AND status = ? "
+                    "ORDER BY requested_at ASC"
+                ),
                 (run_id, status.value),
             )
         else:
@@ -604,9 +823,6 @@ class SqliteStorageBackend:
         return row[0]  # type: ignore[index,no-any-return]
 
 
-# --- Row conversion helpers ---
-
-
 def _parse_dt(s: str | None) -> datetime | None:
     if s is None:
         return None
@@ -623,11 +839,11 @@ def _parse_dt_required(s: str) -> datetime:
     return dt
 
 
-def _row_to_session(row: aiosqlite.Row) -> Session:
-    return Session(
+def _row_to_workspace(row: aiosqlite.Row) -> Workspace:
+    return Workspace(
         id=row["id"],
         title=row["title"],
-        status=SessionStatus(row["status"]),
+        status=WorkspaceStatus(row["status"]),
         external_refs=json.loads(row["external_refs_json"]),
         labels=json.loads(row["labels_json"]),
         metadata=json.loads(row["metadata_json"]),
@@ -636,16 +852,56 @@ def _row_to_session(row: aiosqlite.Row) -> Session:
     )
 
 
+def _row_to_workspace_repo(row: aiosqlite.Row) -> WorkspaceRepo:
+    return WorkspaceRepo(
+        id=row["id"],
+        workspace_id=row["workspace_id"],
+        vcs=row["vcs"],
+        display_name=row["display_name"],
+        canonical_remote=row["canonical_remote"],
+        local_path=row["local_path"],
+        default_branch=row["default_branch"],
+        metadata=json.loads(row["metadata_json"]),
+        created_at=_parse_dt_required(row["created_at"]),
+        updated_at=_parse_dt_required(row["updated_at"]),
+    )
+
+
+def _row_to_task(row: aiosqlite.Row) -> Task:
+    return Task(
+        id=row["id"],
+        workspace_id=row["workspace_id"],
+        title=row["title"],
+        status=TaskStatus(row["status"]),
+        external_refs=json.loads(row["external_refs_json"]),
+        labels=json.loads(row["labels_json"]),
+        metadata=json.loads(row["metadata_json"]),
+        created_at=_parse_dt_required(row["created_at"]),
+        updated_at=_parse_dt_required(row["updated_at"]),
+    )
+
+
+def _row_to_task_repo_link(row: aiosqlite.Row) -> TaskRepoLink:
+    return TaskRepoLink(
+        id=row["id"],
+        task_id=row["task_id"],
+        workspace_repo_id=row["workspace_repo_id"],
+        created_at=_parse_dt_required(row["created_at"]),
+    )
+
+
 def _row_to_run(row: aiosqlite.Row) -> Run:
     return Run(
         id=row["id"],
+        workspace_id=row["workspace_id"],
+        task_id=row["task_id"],
+        workspace_repo_id=row["workspace_repo_id"],
         run_type=row["run_type"],
         status=RunStatus(row["status"]),
         title=row["title"],
         external_refs=json.loads(row["external_refs_json"]),
         labels=json.loads(row["labels_json"]),
         metadata=json.loads(row["metadata_json"]),
-        session_id=row["session_id"],
         created_at=_parse_dt_required(row["created_at"]),
         updated_at=_parse_dt_required(row["updated_at"]),
     )

@@ -1,33 +1,69 @@
 """Named SQL constants for the Postgres storage backend."""
 
-# Sessions
-INSERT_SESSION = """
-INSERT INTO sessions (id, title, status, external_refs_json,
+# Workspaces
+INSERT_WORKSPACE = """
+INSERT INTO workspaces (id, title, status, external_refs_json,
     labels_json, metadata_json, created_at, updated_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 """
 
-SELECT_SESSION = "SELECT * FROM sessions WHERE id = $1"
+SELECT_WORKSPACE = "SELECT * FROM workspaces WHERE id = $1"
 
-UPDATE_SESSION = """
-UPDATE sessions SET title = $1, status = $2, external_refs_json = $3, labels_json = $4,
+UPDATE_WORKSPACE = """
+UPDATE workspaces SET title = $1, status = $2, external_refs_json = $3, labels_json = $4,
     metadata_json = $5, updated_at = $6
 WHERE id = $7
 """
 
+# Workspace repos
+INSERT_WORKSPACE_REPO = """
+INSERT INTO workspace_repos (id, workspace_id, vcs, display_name, canonical_remote,
+    local_path, default_branch, metadata_json, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+"""
+
+SELECT_WORKSPACE_REPO = "SELECT * FROM workspace_repos WHERE id = $1"
+
+UPDATE_WORKSPACE_REPO = """
+UPDATE workspace_repos SET vcs = $1, display_name = $2, canonical_remote = $3,
+    local_path = $4, default_branch = $5, metadata_json = $6, updated_at = $7
+WHERE id = $8
+"""
+
+# Tasks
+INSERT_TASK = """
+INSERT INTO tasks (id, workspace_id, title, status, external_refs_json,
+    labels_json, metadata_json, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+"""
+
+SELECT_TASK = "SELECT * FROM tasks WHERE id = $1"
+
+UPDATE_TASK = """
+UPDATE tasks SET title = $1, status = $2, external_refs_json = $3, labels_json = $4,
+    metadata_json = $5, updated_at = $6
+WHERE id = $7
+"""
+
+# Task repo links
+INSERT_TASK_REPO_LINK = """
+INSERT INTO task_repo_links (id, task_id, workspace_repo_id, created_at)
+VALUES ($1, $2, $3, $4)
+"""
+
 # Runs
 INSERT_RUN = """
-INSERT INTO runs (id, run_type, status, title, external_refs_json,
-    labels_json, metadata_json, session_id, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+INSERT INTO runs (id, workspace_id, task_id, workspace_repo_id, run_type, status, title,
+    external_refs_json, labels_json, metadata_json, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 """
 
 SELECT_RUN = "SELECT * FROM runs WHERE id = $1"
 
 UPDATE_RUN = """
-UPDATE runs SET status = $1, title = $2, external_refs_json = $3, labels_json = $4,
-    metadata_json = $5, session_id = $6, updated_at = $7
-WHERE id = $8
+UPDATE runs SET workspace_id = $1, task_id = $2, workspace_repo_id = $3, status = $4,
+    title = $5, external_refs_json = $6, labels_json = $7, metadata_json = $8, updated_at = $9
+WHERE id = $10
 """
 
 # Events
@@ -101,7 +137,7 @@ DELETE_LEASE = "DELETE FROM leases WHERE id = $1"
 
 DELETE_EXPIRED_LEASES = "DELETE FROM leases WHERE expires_at < NOW() RETURNING id"
 
-# Sequence counter — atomic upsert with RETURNING
+# Sequence counter
 UPSERT_SEQUENCE = """
 INSERT INTO sequence_counters (run_id, current_seq) VALUES ($1, 1)
 ON CONFLICT(run_id) DO UPDATE SET current_seq = sequence_counters.current_seq + 1

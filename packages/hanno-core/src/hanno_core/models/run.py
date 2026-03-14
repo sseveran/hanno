@@ -45,16 +45,22 @@ class Run(BaseModel):
     title: str = ""
     """Human-readable title for the run."""
 
-    external_refs: list[ExternalRef] = []
+    external_refs: list[ExternalRef] = Field(default_factory=list)
     """Structured external references: GitHub issues, support cases, etc."""
 
-    labels: dict[str, str] = {}
+    labels: dict[str, str] = Field(default_factory=dict)
     """Arbitrary key-value labels for filtering."""
 
-    session_id: str | None = None
-    """Optional session this run belongs to."""
+    workspace_id: str
+    """Workspace this run belongs to."""
 
-    metadata: dict[str, object] = {}
+    task_id: str | None = None
+    """Optional task this run belongs to."""
+
+    workspace_repo_id: str | None = None
+    """Optional primary repo for the run."""
+
+    metadata: dict[str, object] = Field(default_factory=dict)
     """Arbitrary metadata."""
 
     created_at: datetime = Field(default_factory=_now)

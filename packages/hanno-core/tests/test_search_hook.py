@@ -43,7 +43,13 @@ def actor():
 class TestSearchIndexerHookIntegration:
     async def test_create_run_indexes_run(self, search_ledger, actor):
         ledger, search = search_ledger
-        run = await ledger.create_run("deploy", actor=actor, title="Deploy to production")
+        workspace = await ledger.create_workspace(title="Alpha")
+        run = await ledger.create_run(
+            "deploy",
+            actor=actor,
+            workspace_id=workspace.id,
+            title="Deploy to production",
+        )
 
         results = await search.search("production")
         # Should find the run and the run.created event
@@ -53,7 +59,8 @@ class TestSearchIndexerHookIntegration:
 
     async def test_add_step_indexes_step(self, search_ledger, actor):
         ledger, search = search_ledger
-        run = await ledger.create_run("build", actor=actor)
+        workspace = await ledger.create_workspace(title="Alpha")
+        run = await ledger.create_run("build", actor=actor, workspace_id=workspace.id)
         await ledger.start_run(run.id, actor=actor)
         step = await ledger.add_step(run.id, step_name="compile_sources", actor=actor)
 
@@ -64,7 +71,8 @@ class TestSearchIndexerHookIntegration:
 
     async def test_complete_step_reindexes_with_summary(self, search_ledger, actor):
         ledger, search = search_ledger
-        run = await ledger.create_run("build", actor=actor)
+        workspace = await ledger.create_workspace(title="Alpha")
+        run = await ledger.create_run("build", actor=actor, workspace_id=workspace.id)
         await ledger.start_run(run.id, actor=actor)
         step = await ledger.add_step(run.id, step_name="test_suite", actor=actor)
         await ledger.start_step(step.id, actor=actor)
@@ -78,7 +86,8 @@ class TestSearchIndexerHookIntegration:
 
     async def test_note_indexes_event(self, search_ledger, actor):
         ledger, search = search_ledger
-        run = await ledger.create_run("debug", actor=actor)
+        workspace = await ledger.create_workspace(title="Alpha")
+        run = await ledger.create_run("debug", actor=actor, workspace_id=workspace.id)
         await ledger.start_run(run.id, actor=actor)
         await ledger.add_note(run.id, actor=actor, message="Found memory leak in connection pool")
 
@@ -88,8 +97,19 @@ class TestSearchIndexerHookIntegration:
 
     async def test_multiple_runs_searchable(self, search_ledger, actor):
         ledger, search = search_ledger
-        run1 = await ledger.create_run("deploy", actor=actor, title="Deploy alpha")
-        run2 = await ledger.create_run("deploy", actor=actor, title="Deploy beta")
+        workspace = await ledger.create_workspace(title="Alpha")
+        run1 = await ledger.create_run(
+            "deploy",
+            actor=actor,
+            workspace_id=workspace.id,
+            title="Deploy alpha",
+        )
+        run2 = await ledger.create_run(
+            "deploy",
+            actor=actor,
+            workspace_id=workspace.id,
+            title="Deploy beta",
+        )
 
         results = await search.search("Deploy", entity_types={EntityType.RUN})
         assert len(results) == 2
@@ -99,8 +119,19 @@ class TestSearchIndexerHookIntegration:
 
     async def test_search_scoped_to_run(self, search_ledger, actor):
         ledger, search = search_ledger
-        run1 = await ledger.create_run("deploy", actor=actor, title="Deploy alpha")
-        await ledger.create_run("deploy", actor=actor, title="Deploy beta")
+        workspace = await ledger.create_workspace(title="Alpha")
+        run1 = await ledger.create_run(
+            "deploy",
+            actor=actor,
+            workspace_id=workspace.id,
+            title="Deploy alpha",
+        )
+        await ledger.create_run(
+            "deploy",
+            actor=actor,
+            workspace_id=workspace.id,
+            title="Deploy beta",
+        )
 
         results = await search.search(
             "Deploy", run_id=run1.id, entity_types={EntityType.RUN}
