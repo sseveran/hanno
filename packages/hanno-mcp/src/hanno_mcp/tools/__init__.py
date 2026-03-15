@@ -2,7 +2,7 @@
 
 from mcp.server.fastmcp import FastMCP
 
-from . import approvals, artifacts, events, runs, sessions, steps
+from . import approvals, artifacts, events, runs, search, sessions, steps
 
 
 def register_all_tools(mcp: FastMCP) -> None:
@@ -13,3 +13,4 @@ def register_all_tools(mcp: FastMCP) -> None:
     events.register(mcp)
     artifacts.register(mcp)
     approvals.register(mcp)
+    search.register(mcp)
