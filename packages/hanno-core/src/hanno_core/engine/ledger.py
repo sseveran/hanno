@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
+from typing import cast
 
 from hanno_core.hooks.registry import InProcessHookRegistry
 from hanno_core.interfaces.artifacts import ArtifactStore
+from hanno_core.interfaces.search import SearchBackend
 from hanno_core.interfaces.storage import StorageBackend
 from hanno_core.models import (
     Approval,
@@ -38,6 +41,7 @@ class InvalidTransitionError(LedgerError):
 
 _RUN_TERMINAL = {RunStatus.SUCCEEDED, RunStatus.FAILED, RunStatus.CANCELED}
 _STEP_TERMINAL = {StepRunStatus.SUCCEEDED, StepRunStatus.FAILED, StepRunStatus.SKIPPED}
+_ReindexSearchFn = Callable[[StorageBackend, ArtifactStore], Awaitable[int]]
 
 
 class RunLedger:
@@ -53,10 +57,32 @@ class RunLedger:
         storage: StorageBackend,
         artifacts: ArtifactStore,
         hooks: InProcessHookRegistry | None = None,
+        search: SearchBackend | None = None,
     ) -> None:
         self._storage = storage
         self._artifacts = artifacts
         self._hooks = hooks or InProcessHookRegistry()
+        self._search = search
+
+    @property
+    def search(self) -> SearchBackend | None:
+        """Optional search backend for querying indexed ledger content."""
+        return self._search
+
+    async def reindex_search(self) -> int:
+        """Rebuild the configured search index from the current ledger state."""
+        if self._search is None:
+            msg = "Search is not enabled"
+            raise LedgerError(msg)
+
+        reindex = cast(
+            _ReindexSearchFn | None,
+            getattr(self._search, "reindex_all", None),
+        )
+        if reindex is None:
+            msg = "Search backend does not support reindexing"
+            raise LedgerError(msg)
+        return await reindex(self._storage, self._artifacts)
 
     # --- Session lifecycle ---
 

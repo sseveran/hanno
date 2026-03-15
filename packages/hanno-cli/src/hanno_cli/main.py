@@ -2,7 +2,7 @@
 
 import typer
 
-from hanno_cli.commands import approval, artifact, event, run, session, step
+from hanno_cli.commands import approval, artifact, event, run, search, session, step
 
 app = typer.Typer(name="hanno", help="Workflow Ledger CLI")
 
@@ -12,6 +12,7 @@ app.add_typer(event.app, name="event")
 app.add_typer(artifact.app, name="artifact")
 app.add_typer(approval.app, name="approval")
 app.add_typer(session.app, name="session")
+app.add_typer(search.app, name="search")
 
 
 if __name__ == "__main__":

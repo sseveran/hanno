@@ -10,8 +10,11 @@ from functools import wraps
 from pathlib import Path
 from typing import Any
 
+from hanno_core.backends.sqlite.search import SqliteFtsSearchBackend
 from hanno_core.backends.sqlite.storage import SqliteStorageBackend
 from hanno_core.engine.ledger import RunLedger
+from hanno_core.hooks.registry import InProcessHookRegistry
+from hanno_core.hooks.search import SearchIndexerHook
 from hanno_core.stores.local_fs import LocalFsArtifactStore
 
 DEFAULT_HANNO_DIR = Path.home() / ".hanno"
@@ -27,6 +30,10 @@ def get_artifact_path() -> Path:
     return Path(os.environ.get("HANNO_ARTIFACT_PATH", str(DEFAULT_ARTIFACT_PATH)))
 
 
+def _search_enabled() -> bool:
+    return os.environ.get("HANNO_SEARCH_ENABLED", "true").lower() in ("true", "1", "yes")
+
+
 @asynccontextmanager
 async def open_ledger() -> AsyncIterator[RunLedger]:
     """Create a configured RunLedger and ensure cleanup."""
@@ -38,11 +45,26 @@ async def open_ledger() -> AsyncIterator[RunLedger]:
 
     storage = SqliteStorageBackend(db_path)
     artifacts = LocalFsArtifactStore(artifact_path)
-    await storage.initialize()
+    storage_initialized = False
+    search = None
     try:
-        yield RunLedger(storage, artifacts)
+        await storage.initialize()
+        storage_initialized = True
+
+        if _search_enabled():
+            search = SqliteFtsSearchBackend(db_path)
+            await search.initialize()
+
+        hooks = InProcessHookRegistry()
+        if search is not None:
+            hooks.register(SearchIndexerHook(search, storage, artifacts))
+
+        yield RunLedger(storage, artifacts, hooks=hooks, search=search)
     finally:
-        await storage.close()
+        if search is not None:
+            await search.close()
+        if storage_initialized:
+            await storage.close()
 
 
 def async_command(f: Any) -> Any:

@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+import typer
+from hanno_cli.commands.search import _parse_datetime_filter, _parse_entity_types
 from hanno_cli.main import app
+from hanno_core.models.search import EntityType
 from typer.testing import CliRunner
 
 runner = CliRunner()
@@ -265,3 +269,28 @@ class TestApprovalCommands:
         result = runner.invoke(app, ["approval", "list", run_id])
         assert result.exit_code == 0
         assert "pending" in result.output
+
+
+class TestSearchHelpers:
+    def test_parse_entity_types(self):
+        parsed = _parse_entity_types(["run", "event"])
+        assert parsed == {EntityType.RUN, EntityType.EVENT}
+
+    def test_parse_entity_types_invalid(self):
+        with pytest.raises(typer.BadParameter):
+            _parse_entity_types(["bogus"])
+
+    def test_parse_datetime_filter_converts_aware_values(self):
+        parsed = _parse_datetime_filter("2026-03-15T08:00:00+02:00", option_name="--after")
+        assert parsed == datetime(2026, 3, 15, 6, 0, tzinfo=UTC)
+
+    def test_parse_datetime_filter_assumes_utc_for_naive_values(self):
+        parsed = _parse_datetime_filter("2026-03-15T08:00:00", option_name="--after")
+        assert parsed == datetime(2026, 3, 15, 8, 0, tzinfo=UTC)
+
+
+class TestSearchCommands:
+    def test_query_invalid_type_returns_bad_parameter(self):
+        result = runner.invoke(app, ["search", "query", "deploy", "--type", "bogus"])
+        assert result.exit_code == 2
+        assert "Invalid entity type" in result.output

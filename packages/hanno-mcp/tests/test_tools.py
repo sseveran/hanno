@@ -266,6 +266,18 @@ class TestArtifactTools:
             assert artifacts[0]["id"] == artifact["id"]
 
 
+class TestSearchTools:
+    @pytest.mark.asyncio
+    async def test_search_invalid_entity_type(self):
+        async with create_connected_server_and_client_session(mcp) as session:
+            result = await _call(
+                session,
+                "hanno_search_ledger",
+                {"query": "deploy", "entity_types": ["bogus"]},
+            )
+            assert result["error"].startswith("Invalid entity type")
+
+
 class TestApprovalTools:
     @pytest.mark.asyncio
     async def test_request_and_grant_approval(self):

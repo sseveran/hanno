@@ -1,30 +1,65 @@
-"""SearchIndexer protocol — optional search integration."""
+"""SearchBackend protocol — optional search integration for the workflow ledger."""
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Protocol
 
-
-class SearchDocument:
-    """A document to be indexed for search."""
-
-    def __init__(
-        self,
-        *,
-        doc_type: str,
-        run_id: str,
-        content: str,
-        metadata: dict[str, object] | None = None,
-    ) -> None:
-        self.doc_type = doc_type
-        self.run_id = run_id
-        self.content = content
-        self.metadata = metadata or {}
+from hanno_core.models import (
+    Artifact,
+    Event,
+    Run,
+    StepRun,
+)
+from hanno_core.models.search import EntityType, SearchMode, SearchResult
 
 
-class SearchIndexer(Protocol):
-    """Optional search backend for indexing ledger content."""
+class SearchBackend(Protocol):
+    """Pluggable search backend for indexing and querying ledger content.
 
-    async def ingest_document(self, doc: SearchDocument) -> None: ...
+    Implementations may support keyword search (FTS), vector search
+    (embeddings), or both (hybrid with Reciprocal Rank Fusion).
+    """
+
+    async def initialize(self) -> None: ...
+
+    async def close(self) -> None: ...
+
+    # --- Indexing (called by SearchIndexerHook on writes) ---
+
+    async def index_run(self, run: Run) -> None: ...
+
+    async def index_event(self, event: Event) -> None: ...
+
+    async def index_step_run(self, step: StepRun) -> None: ...
+
+    async def index_artifact(
+        self, artifact: Artifact, content: bytes | None = None
+    ) -> None: ...
 
     async def delete_run(self, run_id: str) -> None: ...
+
+    # --- Querying ---
+
+    async def search(
+        self,
+        query: str,
+        *,
+        mode: SearchMode = SearchMode.KEYWORD,
+        entity_types: set[EntityType] | None = None,
+        run_id: str | None = None,
+        run_type: str | None = None,
+        status: str | None = None,
+        after: datetime | None = None,
+        before: datetime | None = None,
+        labels: dict[str, str] | None = None,
+        limit: int = 20,
+    ) -> list[SearchResult]: ...
+
+    async def find_similar(
+        self,
+        entity_type: EntityType,
+        entity_id: str,
+        *,
+        limit: int = 10,
+    ) -> list[SearchResult]: ...
